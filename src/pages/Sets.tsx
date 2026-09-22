@@ -151,6 +151,42 @@ export function Sets() {
   }
 
   /**
+   * Registra que a peça foi entregue e tira a pessoa daquela fila, numa escrita
+   * multi-path. Os outros continuam na fila — a peça pode dropar de novo.
+   */
+  async function markDelivered(res: Reservation) {
+    if (!member) return
+    const label = res.slot === 'item' ? res.setName : `${res.setName} · ${SLOT_LABELS[res.slot]}`
+    if (!confirm(`Registrar que ${res.nick} recebeu ${label}?`)) return
+
+    setBusySlot(res.id)
+    setError(null)
+    try {
+      const dropId = push(ref(db, 'drops')).key
+      if (!dropId) throw new Error('Não foi possível gerar o registro.')
+
+      await update(ref(db), {
+        [`drops/${dropId}`]: {
+          setId: res.setId,
+          setName: res.setName,
+          charClass: res.charClass,
+          slot: res.slot,
+          uid: res.uid,
+          nick: res.nick,
+          byUid: member.uid,
+          byNick: member.nick,
+          at: serverTimestamp(),
+        },
+        [`reservations/${res.id}`]: null,
+      })
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusySlot(null)
+    }
+  }
+
+  /**
    * Reordena trocando o `order` entre dois vizinhos, numa escrita multi-path.
    * Não renumera a fila, então duas reordenações simultâneas em pontos
    * diferentes da mesma fila não se atropelam.
@@ -307,6 +343,7 @@ export function Sets() {
               onLeave={leave}
               onJoinAll={joinWholeSet}
               onSwap={swapOrder}
+              onDelivered={markDelivered}
               onEdit={() => setEditing(set)}
               onDelete={() => void handleDelete(set)}
             />
@@ -339,6 +376,7 @@ type SetCardProps = {
   onLeave: (res: Reservation) => void
   onJoinAll: (set: GuildSet) => void
   onSwap: (a: Reservation, b: Reservation) => void
+  onDelivered: (res: Reservation) => void
   onEdit: () => void
   onDelete: () => void
 }
@@ -355,6 +393,7 @@ function SetCard({
   onLeave,
   onJoinAll,
   onSwap,
+  onDelivered,
   onEdit,
   onDelete,
 }: SetCardProps) {
@@ -411,6 +450,7 @@ function SetCard({
             onJoin={onJoin}
             onLeave={onLeave}
             onSwap={onSwap}
+            onDelivered={onDelivered}
           />
         ))}
       </ul>
@@ -443,6 +483,7 @@ function SlotRow({
   onJoin,
   onLeave,
   onSwap,
+  onDelivered,
 }: {
   set: GuildSet
   slot: SlotKey
@@ -454,6 +495,7 @@ function SlotRow({
   onJoin: (set: GuildSet, slot: SlotKey) => void
   onLeave: (res: Reservation) => void
   onSwap: (a: Reservation, b: Reservation) => void
+  onDelivered: (res: Reservation) => void
 }) {
   const myPosition = myUid ? positionIn(queue, myUid) : 0
   const mine = myPosition > 0 ? queue[myPosition - 1] : undefined
@@ -512,18 +554,30 @@ function SlotRow({
                 </span>
               )}
 
-              {isAdmin && res.uid !== myUid && (
-                <button
-                  type="button"
-                  disabled={busySlot !== null}
-                  onClick={() => onLeave(res)}
-                  className={cx(
-                    'shrink-0 text-zinc-600 transition-colors hover:text-red-400 disabled:opacity-50',
-                    queue.length > 1 ? '' : 'ml-auto',
-                  )}
+              {isAdmin && (
+                <span
+                  className={cx('flex shrink-0 gap-2', queue.length > 1 ? '' : 'ml-auto')}
                 >
-                  remover
-                </button>
+                  {/* Entregar tira a pessoa desta fila; os outros continuam. */}
+                  <button
+                    type="button"
+                    disabled={busySlot !== null}
+                    onClick={() => onDelivered(res)}
+                    className="text-zinc-500 transition-colors hover:text-emerald-400 disabled:opacity-50"
+                  >
+                    entregou
+                  </button>
+                  {res.uid !== myUid && (
+                    <button
+                      type="button"
+                      disabled={busySlot !== null}
+                      onClick={() => onLeave(res)}
+                      className="text-zinc-600 transition-colors hover:text-red-400 disabled:opacity-50"
+                    >
+                      remover
+                    </button>
+                  )}
+                </span>
               )}
             </li>
           ))}

@@ -88,6 +88,30 @@
       }
     },
 
+    // ---------------- historico de entregas ----------------
+    // Log append-only: admin registra e pode apagar um registro errado, mas
+    // ninguem edita. Log que se edita nao serve de log.
+    // Toda a guild le -- a transparencia e o proposito.
+    "drops": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+
+      "$dropId": {
+        ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin' && (!data.exists() || !newData.exists())",
+        ".validate": "newData.hasChildren(['setId', 'setName', 'slot', 'uid', 'nick', 'byUid', 'at'])",
+
+        "setId": { ".validate": "newData.isString()" },
+        "setName": { ".validate": "newData.isString() && newData.val().length <= 60" },
+        "charClass": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "slot": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "uid": { ".validate": "newData.isString()" },
+        "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "byUid": { ".validate": "newData.val() === auth.uid" },
+        "byNick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "at": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
     // ---------------- anuncios ----------------
     "announcements": {
       ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",

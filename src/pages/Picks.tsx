@@ -16,11 +16,13 @@ import {
   cx,
 } from '../components/ui'
 import { SLOT_LABELS, queueKey } from '../types'
-import type { Member, Reservation } from '../types'
+import type { Drop, Member, Reservation } from '../types'
 
 type PlayerPicks = {
   member: Member
   reservations: Reservation[]
+  /** Quantas entregas essa pessoa já recebeu. */
+  received: number
 }
 
 /**
@@ -32,6 +34,7 @@ type PlayerPicks = {
 export function Picks() {
   const [members, setMembers] = useState<Member[] | null>(null)
   const [reservations, setReservations] = useState<Reservation[] | null>(null)
+  const [drops, setDrops] = useState<Drop[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -49,9 +52,18 @@ export function Picks() {
       (err) => setError(errorMessage(err)),
     )
 
+    // Quanto cada um já recebeu é o contraponto da fila: sem isso o admin
+    // ordena no escuro.
+    const unsubDrops = onValue(
+      ref(db, 'drops'),
+      (snap) => setDrops(listFrom<Drop>(snap.val())),
+      () => setDrops([]),
+    )
+
     return () => {
       unsubMembers()
       unsubRes()
+      unsubDrops()
     }
   }, [])
 
@@ -65,11 +77,20 @@ export function Picks() {
       byUid.set(res.uid, list)
     }
 
+    const receivedByUid = new Map<string, number>()
+    for (const drop of drops) {
+      receivedByUid.set(drop.uid, (receivedByUid.get(drop.uid) ?? 0) + 1)
+    }
+
     const term = search.trim().toLowerCase()
     const players: PlayerPicks[] = (members ?? [])
       .filter((m) => m.role !== 'pending')
       .filter((m) => !term || (m.nick || m.displayName || '').toLowerCase().includes(term))
-      .map((m) => ({ member: m, reservations: byUid.get(m.uid) ?? [] }))
+      .map((m) => ({
+        member: m,
+        reservations: byUid.get(m.uid) ?? [],
+        received: receivedByUid.get(m.uid) ?? 0,
+      }))
 
     const byName = (a: PlayerPicks, b: PlayerPicks) =>
       (a.member.nick || a.member.email || '').localeCompare(b.member.nick || b.member.email || '')
@@ -82,7 +103,7 @@ export function Picks() {
       withoutPicks: players.filter((p) => p.reservations.length === 0).sort(byName),
       total: reservations?.length ?? 0,
     }
-  }, [members, reservations, search])
+  }, [members, reservations, drops, search])
 
   /** As regras permitem que o admin tire qualquer um de qualquer fila. */
   async function release(res: Reservation) {
@@ -141,7 +162,7 @@ export function Picks() {
               </h2>
               <Card className="overflow-hidden">
                 <ul className="divide-y divide-zinc-800">
-                  {withoutPicks.map(({ member }) => (
+                  {withoutPicks.map(({ member, received }) => (
                     <li key={member.uid} className="flex items-center gap-3 px-5 py-3">
                       <Avatar member={member} />
                       <div className="min-w-0 flex-1">
@@ -152,7 +173,10 @@ export function Picks() {
                           {member.charClass || 'classe não definida'}
                         </p>
                       </div>
-                      <span className="text-xs text-zinc-600">nenhuma reserva</span>
+                      {/* Quem já recebeu e não pediu mais nada é caso diferente
+                          de quem nunca participou. */}
+                      {received > 0 && <Badge tone="green">{received} recebido(s)</Badge>}
+                      <span className="text-xs text-zinc-600">nenhum pedido</span>
                     </li>
                   ))}
                 </ul>
@@ -178,7 +202,7 @@ function PlayerCard({
   busy: string | null
   onRelease: (res: Reservation) => void
 }) {
-  const { member, reservations } = player
+  const { member, reservations, received } = player
   const groups = groupBySet(reservations)
 
   return (
@@ -193,6 +217,7 @@ function PlayerCard({
         </div>
         {member.role === 'admin' && <Badge tone="amber">Admin</Badge>}
         <Badge tone="blue">{reservations.length} pedido(s)</Badge>
+        {received > 0 && <Badge tone="green">{received} recebido(s)</Badge>}
       </div>
 
       <div className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">

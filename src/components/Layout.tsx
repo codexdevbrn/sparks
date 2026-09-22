@@ -9,6 +9,7 @@ type NavItem = { to: string; label: string; adminOnly?: boolean }
 const NAV: NavItem[] = [
   { to: '/', label: 'Anúncios' },
   { to: '/sets', label: 'Sets' },
+  { to: '/historico', label: 'Histórico' },
   { to: '/eventos', label: 'Eventos' },
   { to: '/membros', label: 'Membros' },
   { to: '/escolhas', label: 'Escolhas', adminOnly: true },

@@ -152,6 +152,29 @@ export type Reservation = {
   createdAt?: number
 }
 
+/**
+ * Registro de uma entrega: quem levou a peça de fato.
+ *
+ * A fila diz quem tem prioridade; isto diz quem recebeu. São coisas diferentes,
+ * e a mesma pessoa pode receber a mesma peça mais de uma vez — por isso a chave
+ * é gerada por `push`, e não determinística.
+ */
+export type Drop = {
+  id: string
+  setId: string
+  setName: string
+  charClass: CharClass
+  slot: SlotKey
+  /** Quem recebeu. */
+  uid: string
+  nick: string
+  /** Qual admin registrou. */
+  byUid: string
+  byNick: string
+  /** Quando foi registrado, em ms desde a epoch. */
+  at: number
+}
+
 export type Announcement = {
   id: string
   title: string

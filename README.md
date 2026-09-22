@@ -28,6 +28,17 @@ dá para gravar em caminho arbitrário e furar a identidade.
 admin — se o membro pudesse, ele se colocaria em primeiro. Membro só cria a própria
 entrada e sai da fila; admin também tira qualquer um.
 
+**Histórico de drops.** Quando a peça sai, o admin clica em *entregou* na fila, o que
+registra a entrega e tira a pessoa daquela fila numa escrita atômica. Os outros continuam
+na fila — a peça pode dropar de novo. A página **Histórico** é visível para toda a guild e
+mostra o ranking de quem mais recebeu; a tela de Escolhas mostra o total recebido por
+player ao lado dos pedidos. Fila é prioridade, histórico é fato — ter os dois à vista é o
+que permite discutir a ordem sem depender de memória.
+
+O log é append-only: admin registra e pode apagar um registro errado, mas ninguém edita.
+Ele também sobrevive à exclusão do set e à remoção do membro — histórico que some deixa
+de ser histórico.
+
 **Cadastro.** Tudo acontece na página **Sets**: o admin cadastra e todo mundo reserva, no
 mesmo lugar. Os botões de cadastrar, editar e excluir só aparecem para admin. Não há
 lista fixa no código, porque servidores privados customizam sets — existe um seed com os
@@ -128,6 +139,8 @@ sets/{setId}                      nome, classe, tier, slots: { helm: true, ... }
 reservations/{setId}__{slot}__{uid}
                                   interesse de uma pessoa numa peca,
                                   com `order` definindo a posicao na fila
+drops/{pushId}                    entrega registrada: quem recebeu o que e quando
+                                  (chave por push: a mesma peca pode dropar de novo)
 announcements/{id}                título, texto, pinned
 events/{id}                       título, tipo, startsAt (ms)
 rsvps/{eventId}/{uid}             going | maybe | out
@@ -138,6 +151,7 @@ rsvps/{eventId}/{uid}             going | maybe | out
 | `members/{uid}` | o próprio (só o perfil, nunca o cargo) e admin |
 | `sets` | admin |
 | `reservations` | membro entra na própria fila e sai dela; só admin muda `order` ou tira outra pessoa |
+| `drops` | só admin cria e apaga; ninguém edita (append-only). Toda a guild lê |
 | `announcements` | admin |
 | `events` | admin |
 | `rsvps/{eventId}/{uid}` | o próprio membro |
@@ -177,9 +191,9 @@ Duas reordenações simultâneas em pontos diferentes da mesma fila não se atro
   `orderByChild` + `limitToLast`, ou voltar para o Firestore.
 - **As regras repetem a checagem de cargo** em cada nó, porque a linguagem de regras do
   RTDB não tem funções. Mexer em uma exige mexer em todas.
-- **Sem histórico.** Sair de uma fila apaga o registro, e nada registra quem levou o
-  drop de fato — a fila diz quem tem prioridade, não quem recebeu. Se a guild precisar
-  auditar quem ficou com o quê, o modelo precisa de um nó de log.
+- **O histórico depende de alguém registrar.** Se o admin esquecer de clicar em
+  *entregou*, o drop não existe para o sistema. Não há como o site saber o que aconteceu
+  no jogo.
 - **Fuso horário dos eventos** é o do navegador de quem cadastra e de quem lê. Para uma
   guild toda no mesmo fuso não é problema; para guild internacional, precisa guardar o
   fuso explicitamente.

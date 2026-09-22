@@ -9,6 +9,7 @@ import { Sets } from './pages/Sets'
 import { Events } from './pages/Events'
 import { Members } from './pages/Members'
 import { Picks } from './pages/Picks'
+import { History } from './pages/History'
 
 export function App() {
   return (
@@ -26,6 +27,7 @@ export function App() {
           >
             <Route index element={<Announcements />} />
             <Route path="sets" element={<Sets />} />
+            <Route path="historico" element={<History />} />
             <Route path="eventos" element={<Events />} />
             <Route path="membros" element={<Members />} />
             <Route path="perfil" element={<Profile />} />
