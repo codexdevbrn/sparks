@@ -4,6 +4,7 @@ import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import type { User } from 'firebase/auth'
 import { get, onValue, ref, serverTimestamp, set } from 'firebase/database'
 import { auth, db, googleProvider } from './firebase'
+import { errorMessage } from './format'
 import type { Member } from '../types'
 
 type AuthState = {
@@ -14,6 +15,13 @@ type AuthState = {
   loading: boolean
   isMember: boolean
   isAdmin: boolean
+  /**
+   * Erro ao ler o próprio nó de membro (permissão, rede, etc.) — diferente
+   * de "ainda não existe" ou "pending". Sem isso, um erro de leitura vira
+   * `member: null` igual a um cadastro pendente de verdade, e a pessoa vê a
+   * tela de "aguardando aprovação" mesmo já estando aprovada.
+   */
+  memberError: string | null
   signIn: () => Promise<void>
   logout: () => Promise<void>
 }
@@ -47,6 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [member, setMember] = useState<Member | null>(null)
   const [loading, setLoading] = useState(true)
+  const [memberError, setMemberError] = useState<string | null>(null)
 
   useEffect(() => {
     let unsubMember: (() => void) | null = null
@@ -55,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubMember?.()
       unsubMember = null
       setUser(nextUser)
+      setMemberError(null)
 
       if (!nextUser) {
         setMember(null)
@@ -74,11 +84,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (snap) => {
           const value = snap.val()
           setMember(value ? ({ ...value, uid: nextUser.uid } as Member) : null)
+          setMemberError(null)
           setLoading(false)
         },
         (err) => {
           console.error('Falha ao observar o membro', err)
+          // Erro de leitura não é a mesma coisa que "ainda pendente" — sem
+          // separar os dois, quem já foi aprovado via a mesma tela de espera
+          // quando o problema real era outro (permissão, rede, config).
           setMember(null)
+          setMemberError(errorMessage(err))
           setLoading(false)
         },
       )
@@ -96,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     isMember: member?.role === 'member' || member?.role === 'admin',
     isAdmin: member?.role === 'admin',
+    memberError,
     signIn: async () => {
       await signInWithPopup(auth, googleProvider)
     },

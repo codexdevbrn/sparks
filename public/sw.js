@@ -7,7 +7,7 @@
 // Só mexe em pedido same-origin e GET. Tudo que é do Firebase
 // (Auth, Realtime Database) passa direto, sem cache — dado ao vivo não pode
 // vir de cache velho.
-const CACHE_NAME = 'sparks-v1'
+const CACHE_NAME = 'sparks-v2'
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
