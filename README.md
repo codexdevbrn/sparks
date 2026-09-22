@@ -25,6 +25,11 @@ mesmo lugar. Os botões de cadastrar, editar e excluir só aparecem para admin. 
 lista fixa no código, porque servidores privados customizam sets — existe um seed com os
 sets clássicos mais comuns como ponto de partida, que deve ser revisado antes de usar.
 
+**Visão do admin.** A página **Escolhas** (só admin) lista cada player e o que ele
+reservou, agrupado por set, e separa em destaque quem ainda não escolheu nada — que é a
+informação acionável para cobrar o pessoal. O admin pode liberar a reserva de qualquer um
+por ali.
+
 **Dois formatos de cadastro.** Um registro pode ser:
 
 - **Conjunto** — N peças (elmo, armadura, calça, luvas, botas, arma, escudo), cada uma

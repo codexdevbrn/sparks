@@ -1,0 +1,236 @@
+import { useEffect, useMemo, useState } from 'react'
+import { onValue, ref, remove } from 'firebase/database'
+import { db } from '../lib/firebase'
+import { errorMessage } from '../lib/format'
+import { listFrom } from '../lib/rtdb'
+import { groupBySet } from '../lib/reservations'
+import {
+  Badge,
+  Card,
+  EmptyState,
+  ErrorNote,
+  Field,
+  Input,
+  PageHeader,
+  Spinner,
+  cx,
+} from '../components/ui'
+import { SLOT_LABELS } from '../types'
+import type { Member, Reservation } from '../types'
+
+type PlayerPicks = {
+  member: Member
+  reservations: Reservation[]
+}
+
+/**
+ * Visão do admin: cada player da guild e o que escolheu.
+ *
+ * Mostra também quem não escolheu nada — para o admin, essa é a informação mais
+ * acionável da tela, porque é quem precisa ser cobrado.
+ */
+export function Picks() {
+  const [members, setMembers] = useState<Member[] | null>(null)
+  const [reservations, setReservations] = useState<Reservation[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const unsubMembers = onValue(
+      ref(db, 'members'),
+      (snap) => setMembers(listFrom<Member>(snap.val(), 'uid')),
+      (err) => setError(errorMessage(err)),
+    )
+
+    const unsubRes = onValue(
+      ref(db, 'reservations'),
+      (snap) => setReservations(listFrom<Reservation>(snap.val())),
+      (err) => setError(errorMessage(err)),
+    )
+
+    return () => {
+      unsubMembers()
+      unsubRes()
+    }
+  }, [])
+
+  const { withPicks, withoutPicks, total } = useMemo(() => {
+    const byUid = new Map<string, Reservation[]>()
+    for (const res of reservations ?? []) {
+      const list = byUid.get(res.uid) ?? []
+      list.push(res)
+      byUid.set(res.uid, list)
+    }
+
+    const term = search.trim().toLowerCase()
+    const players: PlayerPicks[] = (members ?? [])
+      .filter((m) => m.role !== 'pending')
+      .filter((m) => !term || (m.nick || m.displayName || '').toLowerCase().includes(term))
+      .map((m) => ({ member: m, reservations: byUid.get(m.uid) ?? [] }))
+
+    const byName = (a: PlayerPicks, b: PlayerPicks) =>
+      (a.member.nick || a.member.email || '').localeCompare(b.member.nick || b.member.email || '')
+
+    return {
+      // Mais reservas primeiro: quem está montando mais coisa aparece no topo.
+      withPicks: players
+        .filter((p) => p.reservations.length > 0)
+        .sort((a, b) => b.reservations.length - a.reservations.length || byName(a, b)),
+      withoutPicks: players.filter((p) => p.reservations.length === 0).sort(byName),
+      total: reservations?.length ?? 0,
+    }
+  }, [members, reservations, search])
+
+  /** As regras permitem que o admin apague reserva de qualquer um. */
+  async function release(res: Reservation) {
+    if (!confirm(`Liberar ${res.setName} · ${SLOT_LABELS[res.slot]} de ${res.nick}?`)) return
+    setBusy(res.id)
+    setError(null)
+    try {
+      await remove(ref(db, `reservations/${res.id}`))
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (members === null || reservations === null) return <Spinner />
+
+  const players = withPicks.length + withoutPicks.length
+
+  return (
+    <>
+      <PageHeader
+        title="Escolhas da guild"
+        description={`${players} player(es) · ${total} reserva(s) no total.`}
+      />
+
+      <ErrorNote message={error} />
+
+      <div className="mb-6 max-w-xs">
+        <Field label="Buscar player">
+          <Input placeholder="Nick…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </Field>
+      </div>
+
+      {players === 0 ? (
+        <EmptyState
+          title={search ? 'Nenhum player com esse nick' : 'Nenhum player aprovado ainda'}
+          description={search ? undefined : 'Aprove membros em Membros para eles começarem a escolher.'}
+        />
+      ) : (
+        <div className="space-y-4">
+          {withPicks.map((player) => (
+            <PlayerCard
+              key={player.member.uid}
+              player={player}
+              busy={busy}
+              onRelease={(res) => void release(res)}
+            />
+          ))}
+
+          {withoutPicks.length > 0 && (
+            <section className="pt-4">
+              <h2 className="mb-3 text-xs font-medium tracking-wide text-zinc-500 uppercase">
+                Ainda não escolheram ({withoutPicks.length})
+              </h2>
+              <Card className="overflow-hidden">
+                <ul className="divide-y divide-zinc-800">
+                  {withoutPicks.map(({ member }) => (
+                    <li key={member.uid} className="flex items-center gap-3 px-5 py-3">
+                      <Avatar member={member} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-zinc-300">
+                          {member.nick || member.displayName || 'sem nick'}
+                        </p>
+                        <p className="truncate text-xs text-zinc-500">
+                          {member.charClass || 'classe não definida'}
+                        </p>
+                      </div>
+                      <span className="text-xs text-zinc-600">nenhuma reserva</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            </section>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+/* ---------------- card do player ---------------- */
+
+function PlayerCard({
+  player,
+  busy,
+  onRelease,
+}: {
+  player: PlayerPicks
+  busy: string | null
+  onRelease: (res: Reservation) => void
+}) {
+  const { member, reservations } = player
+  const groups = groupBySet(reservations)
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center gap-3 border-b border-zinc-800 pb-4">
+        <Avatar member={member} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-zinc-50">
+            {member.nick || member.displayName || 'sem nick'}
+          </p>
+          <p className="truncate text-xs text-zinc-500">{member.charClass || 'classe não definida'}</p>
+        </div>
+        {member.role === 'admin' && <Badge tone="amber">Admin</Badge>}
+        <Badge tone="blue">{reservations.length} reserva(s)</Badge>
+      </div>
+
+      <div className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+        {groups.map((group) => (
+          <div key={group.setId}>
+            <p className="text-xs font-medium text-amber-400">
+              {group.setName}
+              {group.single && <span className="ml-1 text-zinc-500">· item único</span>}
+            </p>
+            <ul className="mt-1 space-y-0.5">
+              {group.items.map((res) => (
+                <li key={res.id} className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-zinc-400">
+                    {res.slot === 'item' ? 'Reservado' : SLOT_LABELS[res.slot]}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy === res.id}
+                    onClick={() => onRelease(res)}
+                    className={cx(
+                      'text-xs text-zinc-600 transition-colors hover:text-red-400',
+                      'disabled:opacity-50',
+                    )}
+                  >
+                    {busy === res.id ? '…' : 'liberar'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function Avatar({ member }: { member: Member }) {
+  if (member.photoURL) {
+    return <img src={member.photoURL} alt="" className="size-9 shrink-0 rounded-full" />
+  }
+  return (
+    <span className="grid size-9 shrink-0 place-items-center rounded-full bg-zinc-800 text-xs">
+      {(member.nick || '?').slice(0, 2).toUpperCase()}
+    </span>
+  )
+}

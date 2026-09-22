@@ -4,17 +4,10 @@ import { onValue, ref, remove } from 'firebase/database'
 import { db } from '../lib/firebase'
 import { errorMessage } from '../lib/format'
 import { listFrom } from '../lib/rtdb'
+import { groupBySet } from '../lib/reservations'
 import { Badge, Button, Card, EmptyState, ErrorNote, Spinner } from './ui'
-import { SLOTS, SLOT_LABELS } from '../types'
+import { SLOT_LABELS } from '../types'
 import type { Reservation } from '../types'
-
-type Group = {
-  setId: string
-  setName: string
-  charClass: string
-  single: boolean
-  items: Reservation[]
-}
 
 /** Lista o que este usuário reservou, agrupado por set, com opção de liberar. */
 export function MyReservations({ uid }: { uid: string }) {
@@ -38,29 +31,7 @@ export function MyReservations({ uid }: { uid: string }) {
     )
   }, [uid])
 
-  const groups = useMemo<Group[]>(() => {
-    const bySet = new Map<string, Group>()
-
-    for (const res of mine ?? []) {
-      const group = bySet.get(res.setId) ?? {
-        setId: res.setId,
-        setName: res.setName,
-        charClass: res.charClass,
-        single: false,
-        items: [],
-      }
-      group.items.push(res)
-      if (res.slot === 'item') group.single = true
-      bySet.set(res.setId, group)
-    }
-
-    for (const group of bySet.values()) {
-      // Ordem canônica das peças, não a ordem em que foram reservadas.
-      group.items.sort((a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot))
-    }
-
-    return [...bySet.values()].sort((a, b) => a.setName.localeCompare(b.setName))
-  }, [mine])
+  const groups = useMemo(() => groupBySet(mine ?? []), [mine])
 
   async function release(res: Reservation) {
     setBusy(res.id)

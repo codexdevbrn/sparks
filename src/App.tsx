@@ -8,6 +8,7 @@ import { Announcements } from './pages/Announcements'
 import { Sets } from './pages/Sets'
 import { Events } from './pages/Events'
 import { Members } from './pages/Members'
+import { Picks } from './pages/Picks'
 
 export function App() {
   return (
@@ -28,6 +29,14 @@ export function App() {
             <Route path="eventos" element={<Events />} />
             <Route path="membros" element={<Members />} />
             <Route path="perfil" element={<Profile />} />
+            <Route
+              path="escolhas"
+              element={
+                <RequireAuth adminOnly>
+                  <Picks />
+                </RequireAuth>
+              }
+            />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

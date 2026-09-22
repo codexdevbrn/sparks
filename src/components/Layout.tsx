@@ -4,13 +4,14 @@ import { useAuth } from '../lib/auth'
 import { GUILD_NAME } from '../lib/firebase'
 import { Button, cx } from './ui'
 
-type NavItem = { to: string; label: string }
+type NavItem = { to: string; label: string; adminOnly?: boolean }
 
 const NAV: NavItem[] = [
   { to: '/', label: 'Anúncios' },
   { to: '/sets', label: 'Sets' },
   { to: '/eventos', label: 'Eventos' },
   { to: '/membros', label: 'Membros' },
+  { to: '/escolhas', label: 'Escolhas', adminOnly: true },
 ]
 
 function navClass({ isActive }: { isActive: boolean }): string {
@@ -21,8 +22,10 @@ function navClass({ isActive }: { isActive: boolean }): string {
 }
 
 export function Layout() {
-  const { member, logout } = useAuth()
+  const { member, isAdmin, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
+
+  const items = NAV.filter((item) => !item.adminOnly || isAdmin)
 
   return (
     <div className="min-h-dvh">
@@ -34,7 +37,7 @@ export function Layout() {
           </NavLink>
 
           <nav className="ml-4 hidden items-center gap-1 md:flex">
-            {NAV.map((item) => (
+            {items.map((item) => (
               <NavLink key={item.to} to={item.to} end={item.to === '/'} className={navClass}>
                 {item.label}
               </NavLink>
@@ -64,7 +67,7 @@ export function Layout() {
 
         {menuOpen && (
           <nav className="flex flex-col gap-1 border-t border-zinc-800 px-4 py-2 md:hidden">
-            {NAV.map((item) => (
+            {items.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
