@@ -5,6 +5,7 @@ import { ref, serverTimestamp, update } from 'firebase/database'
 import { useAuth } from '../lib/auth'
 import { db } from '../lib/firebase'
 import { errorMessage } from '../lib/format'
+import { MyReservations } from '../components/MyReservations'
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select } from '../components/ui'
 import { CHAR_CLASSES, ROLE_LABELS } from '../types'
 import type { CharClass } from '../types'
@@ -100,6 +101,13 @@ export function Profile() {
           </Button>
         </form>
       </Card>
+
+      {/* Só depois do nick: sem nick o usuário não conseguiu reservar nada ainda. */}
+      {member?.nick && (
+        <div className="mt-10">
+          <MyReservations uid={member.uid} />
+        </div>
+      )}
     </div>
   )
 }
