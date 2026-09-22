@@ -115,6 +115,26 @@ export type Member = {
   updatedAt?: number
 }
 
+/**
+ * Categoria de um item único (`slots: { item: true }`). Não existe para
+ * conjunto — um set já se identifica pelas peças. Cobre tudo que um player
+ * pode pedir para dropar fora de um conjunto, jóia inclusive.
+ */
+export const ITEM_TYPES = [
+  'Arma',
+  'Escudo',
+  'Asa',
+  'Anel',
+  'Amuleto',
+  'Capa',
+  'Pet',
+  'Joia',
+  'Poção',
+  'Outro',
+] as const
+
+export type ItemType = (typeof ITEM_TYPES)[number]
+
 export type GuildSet = {
   id: string
   name: string
@@ -122,6 +142,8 @@ export type GuildSet = {
   /** Livre de propósito: "Normal", "Excellent", "Ancient", "+13", etc. */
   tier: string
   slots: SlotMap
+  /** Só em item único (`isSingleItem`); ausente em conjunto. */
+  itemType?: ItemType
   notes: string
   createdAt?: number
 }
@@ -192,13 +214,29 @@ export const EVENT_TYPES = ['Castle Siege', 'Blood Castle', 'Chaos Castle', 'Bos
 
 export type EventType = (typeof EVENT_TYPES)[number]
 
+/** 0 = domingo ... 6 = sábado, igual a `Date#getDay()`. */
+export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
+
+export type Recurrence = {
+  weekday: Weekday
+  hour: number
+  minute: number
+}
+
 export type GuildEvent = {
   id: string
   title: string
   description: string
   type: EventType
-  /** Milissegundos desde a epoch. */
-  startsAt: number
+  /** Milissegundos desde a epoch. Ausente quando o evento é recorrente. */
+  startsAt?: number
+  /** Presente quando o evento se repete toda semana no mesmo dia e hora. */
+  recurrence?: Recurrence
+  /** Evento fixado aparece no topo da agenda, antes dos demais. */
+  pinned?: boolean
+  /** Se a guild confirma presença nesse evento. Ausente conta como `true`
+   *  (eventos criados antes desse campo existir já tinham RSVP). */
+  rsvpEnabled?: boolean
   createdBy: string
   createdByName: string
   createdAt?: number
@@ -217,6 +255,116 @@ export type Rsvp = {
   nick: string
   status: RsvpStatus
   updatedAt?: number
+}
+
+/* ---------------- status no MuEliteWars (scraper externo) ---------------- */
+
+/**
+ * Situação de um personagem da guild no site oficial, lida por um scraper que
+ * roda fora do app (GitHub Actions, ver `scripts/scrape-mu.mjs`) porque o
+ * navegador do jogador não consegue buscar isso direto — o site não libera
+ * CORS. O scraper escreve aqui; o app só lê, em tempo real.
+ */
+export type MuCharStatus = {
+  id: string
+  name: string
+  charClass: string
+  level: number
+  resets: number
+  online: boolean
+  map: string
+  x: number
+  y: number
+  /** uid do membro casado por nick, quando existe um membro com esse nick. */
+  uid: string | null
+  updatedAt?: number
+}
+
+export type MuStatus = {
+  updatedAt: number
+  guild: string
+  online: number
+  total: number
+  chars: Record<string, Omit<MuCharStatus, 'id'>>
+}
+
+/* ---------------- catálogo de bosses ---------------- */
+
+/**
+ * Um horário de nascimento. Sem `weekday` é todo dia; com `weekday`, uma vez
+ * por semana — mesma ideia de `Recurrence`, mas o dia é opcional porque boss
+ * costuma nascer mais de uma vez por dia, não só uma vez por semana.
+ */
+export type BossSchedule = {
+  weekday?: Weekday
+  hour: number
+  minute: number
+}
+
+export type BossLocation = {
+  map: string
+  x: number
+  y: number
+}
+
+export type Boss = {
+  id: string
+  name: string
+  location?: BossLocation
+  /** O que dropa, dica de local, etc. Opcional de propósito. */
+  notes?: string
+  /**
+   * Texto livre pra cadência sem horário fixo conhecido: "1x por dia",
+   * "posição aleatória", "só pra guild dona do castelo". Muitos bosses de MU
+   * não têm horário publicado — só local — e forçar um horário inventado
+   * seria pior que não ter contador nenhum.
+   */
+  scheduleNote?: string
+  /** N horários — um boss pode nascer várias vezes por dia. Pode ser vazio. */
+  schedules?: BossSchedule[]
+  createdBy: string
+  createdByName: string
+  createdAt?: number
+}
+
+/* ---------------- regras da guild ---------------- */
+
+/** Um único bloco de texto, editado pelo admin — regras, código de conduta. */
+export type GuildRules = {
+  body: string
+  updatedBy: string
+  updatedAt?: number
+}
+
+/* ---------------- enquetes ---------------- */
+
+export type Poll = {
+  id: string
+  question: string
+  options: string[]
+  /** Ausente = sem prazo, fica aberta até o admin fechar/excluir. */
+  closesAt?: number
+  createdBy: string
+  createdByName: string
+  createdAt?: number
+}
+
+/** Um voto por pessoa por enquete: `votes/{pollId}/{uid}` guarda o índice da opção. */
+export type PollVote = {
+  uid: string
+  nick: string
+  optionIndex: number
+  votedAt?: number
+}
+
+/* ---------------- mural de recados ---------------- */
+
+export type Shout = {
+  id: string
+  uid: string
+  nick: string
+  text: string
+  createdAt?: number
 }
 
 /** Chave determinística do interesse de uma pessoa numa peça. */

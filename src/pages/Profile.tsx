@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ref, serverTimestamp, update } from 'firebase/database'
+import { onValue, ref, serverTimestamp, update } from 'firebase/database'
 import { useAuth } from '../lib/auth'
 import { db } from '../lib/firebase'
 import { errorMessage } from '../lib/format'
 import { MyReservations } from '../components/MyReservations'
 import { Badge, Button, Card, ErrorNote, Field, Input, PageHeader, Select } from '../components/ui'
 import { CHAR_CLASSES, ROLE_LABELS } from '../types'
-import type { CharClass } from '../types'
+import type { CharClass, MuCharStatus, MuStatus } from '../types'
 
 export function Profile() {
   const { user, member } = useAuth()
@@ -17,6 +17,7 @@ export function Profile() {
   const [charClass, setCharClass] = useState<CharClass | ''>('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [muStatus, setMuStatus] = useState<MuStatus | null>(null)
 
   // Sincroniza o formulário quando o documento do membro chega/muda.
   useEffect(() => {
@@ -24,6 +25,18 @@ export function Profile() {
     setNick(member.nick)
     setCharClass(member.charClass)
   }, [member])
+
+  useEffect(() => {
+    return onValue(ref(db, 'muStatus'), (snap) => setMuStatus(snap.val()))
+  }, [])
+
+  // Casa pelo uid que o próprio scraper já resolveu por nick — não precisa
+  // repetir a lógica de match aqui.
+  const myChar: MuCharStatus | null = (() => {
+    if (!member || !muStatus) return null
+    const entry = Object.entries(muStatus.chars ?? {}).find(([, c]) => c.uid === member.uid)
+    return entry ? { id: entry[0], ...entry[1] } : null
+  })()
 
   async function handleSave(event: FormEvent) {
     event.preventDefault()
@@ -101,6 +114,21 @@ export function Profile() {
           </Button>
         </form>
       </Card>
+
+      {myChar && (
+        <Card className="mt-6 p-6">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs font-medium tracking-wide text-zinc-400 uppercase">No MuEliteWars</p>
+            <Badge tone={myChar.online ? 'green' : 'neutral'}>{myChar.online ? 'Online' : 'Offline'}</Badge>
+          </div>
+          <p className="text-sm text-zinc-200">
+            {myChar.charClass} · Level {myChar.level} · {myChar.resets} resets
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {myChar.online ? 'Em' : 'Visto por último em'} {myChar.map} ({myChar.x}/{myChar.y})
+          </p>
+        </Card>
+      )}
 
       {/* Só depois do nick: sem nick o usuário não conseguiu reservar nada ainda. */}
       {member?.nick && (

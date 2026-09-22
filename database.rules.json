@@ -48,6 +48,9 @@
         "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" },
         "charClass": { ".validate": "newData.isString() && newData.val().length <= 30" },
         "tier": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        // So faz sentido em item unico, mas a validacao nao depende disso --
+        // e so mais um campo de texto curto, opcional.
+        "itemType": { ".validate": "newData.isString() && newData.val().length <= 30" },
         "notes": { ".validate": "newData.isString() && newData.val().length <= 300" },
         "createdAt": { ".validate": "newData.isNumber()" },
         "slots": {
@@ -139,12 +142,26 @@
       ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
 
       "$id": {
-        ".validate": "newData.hasChildren(['title', 'startsAt'])",
+        // Ou tem data fixa, ou e recorrente (semana + hora) -- nunca precisa
+        // dos dois nem fica sem nenhum.
+        ".validate": "newData.hasChild('title') && (newData.hasChild('startsAt') || newData.hasChild('recurrence'))",
 
         "title": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
         "description": { ".validate": "newData.isString() && newData.val().length <= 2000" },
         "type": { ".validate": "newData.isString() && newData.val().length <= 30" },
         "startsAt": { ".validate": "newData.isNumber()" },
+        "recurrence": {
+          ".validate": "newData.hasChildren(['weekday', 'hour', 'minute'])",
+          "weekday": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
+          "hour": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 23" },
+          "minute": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 59" },
+          "$other": { ".validate": false }
+        },
+        // Evento fixado aparece no topo da agenda, acima dos demais.
+        "pinned": { ".validate": "newData.isBoolean()" },
+        // Ausente conta como true -- eventos criados antes desse campo existir
+        // ja tinham confirmacao de presenca.
+        "rsvpEnabled": { ".validate": "newData.isBoolean()" },
         "createdBy": { ".validate": "newData.isString()" },
         "createdByName": { ".validate": "newData.isString() && newData.val().length <= 20" },
         "createdAt": { ".validate": "newData.isNumber()" },
@@ -152,7 +169,7 @@
       }
     },
 
-    // ---------------- presenca em eventos ----------------
+    // ---------------- presenca em eventos (data fixa) ----------------
     // Fora do no de eventos, para a lista de eventos nao arrastar todas as
     // presencas em cada leitura.
     "rsvps": {
@@ -172,6 +189,155 @@
           "status": { ".validate": "newData.val() === 'going' || newData.val() === 'maybe' || newData.val() === 'out'" },
           "updatedAt": { ".validate": "newData.isNumber()" },
           "$other": { ".validate": false }
+        }
+      }
+    },
+
+    // ---------------- catalogo de bosses ----------------
+    "bosses": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+      ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
+
+      "$id": {
+        // So o nome e obrigatorio -- muito boss de MU nao tem horario
+        // publicado, so local, e forcar um horario inventado seria pior que
+        // nao ter contador nenhum.
+        ".validate": "newData.hasChild('name')",
+
+        "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" },
+        "location": {
+          ".validate": "newData.hasChildren(['map', 'x', 'y'])",
+          "map": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "x": { ".validate": "newData.isNumber()" },
+          "y": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        },
+        "notes": { ".validate": "newData.isString() && newData.val().length <= 500" },
+        "scheduleNote": { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "schedules": {
+          "$i": {
+            ".validate": "newData.hasChildren(['hour', 'minute'])",
+            "weekday": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
+            "hour": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 23" },
+            "minute": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 59" },
+            "$other": { ".validate": false }
+          }
+        },
+        "createdBy": { ".validate": "newData.isString()" },
+        "createdByName": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // ---------------- regras da guild ----------------
+    // Um no so, sem lista -- e um texto que o admin mantem, nao um cadastro.
+    "guildRules": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+      ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
+      ".validate": "newData.hasChild('body')",
+
+      "body": { ".validate": "newData.isString() && newData.val().length <= 8000" },
+      "updatedBy": { ".validate": "newData.isString() && newData.val().length <= 20" },
+      "updatedAt": { ".validate": "newData.isNumber()" },
+      "$other": { ".validate": false }
+    },
+
+    // ---------------- enquetes ----------------
+    "polls": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+      ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
+
+      "$id": {
+        ".validate": "newData.hasChildren(['question', 'options']) && newData.child('options').hasChildren()",
+
+        "question": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+        "options": {
+          "$i": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80" }
+        },
+        "closesAt": { ".validate": "newData.isNumber()" },
+        "createdBy": { ".validate": "newData.isString()" },
+        "createdByName": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // Fora do no da enquete, mesmo motivo de sempre: ler a lista de enquetes
+    // nao deve arrastar todo mundo que ja votou em cada uma.
+    "pollVotes": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+
+      "$pollId": {
+        // Admin apaga o no inteiro junto com a enquete.
+        ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin' && !newData.exists()",
+
+        "$uid": {
+          // Cada um so registra o proprio voto, e nao pode trocar depois --
+          // "!data.exists()" e o que torna o voto definitivo.
+          ".write": "auth != null && $uid === auth.uid && !data.exists() && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+          ".validate": "newData.hasChildren(['uid', 'nick', 'optionIndex']) && newData.child('optionIndex').val() >= 0 && root.child('polls/' + $pollId + '/options/' + newData.child('optionIndex').val()).exists()",
+
+          "uid": { ".validate": "newData.val() === $uid" },
+          "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+          "optionIndex": { ".validate": "newData.isNumber()" },
+          "votedAt": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
+
+    // ---------------- mural de recados ----------------
+    // Mensagem curta e informal, ao contrario de 'announcements' (so admin,
+    // mais formal). Qualquer membro posta; cada um apaga so a propria, admin
+    // apaga qualquer uma.
+    "shouts": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+
+      "$id": {
+        ".write": "(auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin') && !data.exists() && newData.child('uid').val() === auth.uid) || (auth != null && data.exists() && !newData.exists() && (root.child('members/' + auth.uid + '/role').val() === 'admin' || data.child('uid').val() === auth.uid))",
+        ".validate": "newData.hasChildren(['uid', 'nick', 'text'])",
+
+        "uid": { ".validate": "newData.val() === auth.uid" },
+        "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "text": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 280" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // ---------------- status no MuEliteWars ----------------
+    // Escrito por um scraper externo (GitHub Actions, ver
+    // scripts/scrape-mu.mjs) com credencial de servico do Firebase Admin, que
+    // ignora as regras. Nenhum cliente escreve aqui -- so le.
+    "muStatus": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+      ".write": false
+    },
+
+    // ---------------- presenca em eventos recorrentes ----------------
+    // Mesma coisa que 'rsvps', com uma camada a mais: o ciclo semanal. A
+    // chave do ciclo muda sozinha 1h antes de cada ocorrencia (ver
+    // src/lib/recurrence.ts), e isso e o que "reseta" a lista -- nao existe
+    // Cloud Functions no projeto para rodar um cron as 16h de domingo.
+    "rsvpCycles": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+
+      "$eventId": {
+        // Admin apaga o no inteiro junto com o evento.
+        ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin' && !newData.exists()",
+
+        "$cycleId": {
+          "$uid": {
+            ".write": "auth != null && $uid === auth.uid && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+            ".validate": "newData.hasChildren(['status', 'nick'])",
+
+            "uid": { ".validate": "newData.val() === $uid" },
+            "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+            "status": { ".validate": "newData.val() === 'going' || newData.val() === 'maybe' || newData.val() === 'out'" },
+            "updatedAt": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
         }
       }
     }

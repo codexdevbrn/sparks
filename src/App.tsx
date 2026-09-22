@@ -4,12 +4,17 @@ import { Layout } from './components/Layout'
 import { RequireAuth } from './components/RequireAuth'
 import { Login } from './pages/Login'
 import { Profile } from './pages/Profile'
-import { Announcements } from './pages/Announcements'
+import { Feed } from './pages/Feed'
 import { Sets } from './pages/Sets'
 import { Events } from './pages/Events'
 import { Members } from './pages/Members'
 import { Picks } from './pages/Picks'
 import { History } from './pages/History'
+import { Online } from './pages/Online'
+import { Rules } from './pages/Rules'
+import { Polls } from './pages/Polls'
+import { Shoutbox } from './pages/Shoutbox'
+import { Bosses } from './pages/Bosses'
 
 export function App() {
   return (
@@ -25,10 +30,15 @@ export function App() {
               </RequireAuth>
             }
           >
-            <Route index element={<Announcements />} />
+            <Route index element={<Feed />} />
+            <Route path="mural" element={<Shoutbox />} />
+            <Route path="online" element={<Online />} />
             <Route path="sets" element={<Sets />} />
             <Route path="historico" element={<History />} />
             <Route path="eventos" element={<Events />} />
+            <Route path="bosses" element={<Bosses />} />
+            <Route path="enquetes" element={<Polls />} />
+            <Route path="regras" element={<Rules />} />
             <Route path="membros" element={<Members />} />
             <Route path="perfil" element={<Profile />} />
             <Route

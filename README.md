@@ -10,6 +10,19 @@ Database** + Hosting).
 
 ## Como funciona
 
+**PWA.** O site é instalável como app (manifesto em `public/manifest.webmanifest`, service
+worker em `public/sw.js`). O rodapé mostra um botão "Instalar app" onde o navegador
+suporta o prompt nativo (`beforeinstallprompt`); onde não suporta (iOS Safari, notavelmente),
+mostra a instrução de instalar manualmente pelo menu do navegador. O service worker não
+faz precache — guarda em cache o que passa pela rede e serve isso offline, sem interferir
+em nada do Firebase (só mexe em pedido same-origin).
+
+**Feed principal.** A página inicial (`src/pages/Feed.tsx`) mistura anúncios, eventos e
+enquetes num feed só, fixados primeiro e depois por data — em vez de três telas isoladas
+que ninguém lembra de abrir. Cada card é o mesmo componente interativo das telas
+dedicadas (RSVP no evento, voto na enquete), só reaproveitado; **Eventos** e **Enquetes**
+continuam existindo à parte pra quem quer ver só aquilo.
+
 **Anúncios com imagem.** O admin escreve o aviso e pode colar o link de uma print. Não há
 upload: o Cloud Storage não está provisionado no projeto, e habilitá-lo em projeto novo
 normalmente exige o plano Blaze. O campo guarda uma URL `https`, e o formulário mostra
@@ -62,10 +75,79 @@ O log é append-only: admin registra e pode apagar um registro errado, mas ningu
 Ele também sobrevive à exclusão do set e à remoção do membro — histórico que some deixa
 de ser histórico.
 
+**Eventos fixados e recorrentes.** Um evento pode ser fixado — fica sempre acima dos demais
+na agenda — e pode se repetir toda semana no mesmo dia e horário, em vez de ter uma data
+fixa. Não há Cloud Functions no projeto (só Hosting + RTDB + Auth), então a "próxima
+ocorrência" de um evento recorrente não é gravada: é recalculada no navegador a partir do
+dia da semana e do horário salvos, e nunca cai para "já aconteceu".
+
+Confirmação de presença é opcional por evento — nem todo aviso precisa de RSVP. Em um
+evento recorrente com confirmação ligada, a lista reseta sozinha **1h antes de cada
+ocorrência**: as respostas vivem em `rsvpCycles/{eventId}/{cicloId}`, e o id do ciclo muda
+exatamente nesse instante, então a troca de chave já é o reset — sem job, sem cron. Ciclos
+antigos continuam no banco, só saem da tela.
+
+**Online agora.** A página **Online** mostra quem da guild está logado no MuEliteWars
+neste momento, com classe, level e o mapa + coordenada de cada um — pra saber com quem
+contar pra uma corrida rápida sem precisar perguntar no chat. O navegador do jogador não
+consegue buscar isso direto no site oficial (ele não libera CORS), então um robô externo
+(GitHub Actions, ver `scripts/scrape-mu.mjs`) busca a página da guild em muelitewars.com a
+cada 10 minutos e grava o resultado no banco; o app só lê, em tempo real. É opcional —
+sem configurar o robô, a página mostra que ainda não há dados, e o resto do site funciona
+normal. Setup em [Status ao vivo do MuEliteWars](#7-status-ao-vivo-do-muelitewars-opcional).
+
+O próprio **Perfil** também mostra esse status, quando o nick do app bate com o nome do
+personagem no jogo: classe, level, resets e onde o personagem está agora.
+
+**Ranking de presença.** Além do ranking de quem mais recebeu (em Histórico), a mesma
+página mostra quem mais confirma presença nos eventos — soma "vou" em eventos de data
+fixa e em cada ciclo semanal de evento recorrente, então um Castle Siege confirmado toda
+semana conta uma vez por semana. É o dado que embasa "quem realmente aparece", sem
+depender de opinião.
+
+**Mural.** Recado rápido e informal — "bora BC agora?" — sem a formalidade de um anúncio
+(que continua só admin). Qualquer membro posta e apaga o próprio; admin apaga qualquer um.
+
+**Enquetes.** O admin cria uma pergunta com opções, cada membro vota uma vez só (a regra
+do banco recusa sobrescrever um voto já registrado), e o resultado aparece em barra de
+porcentagem pra todo mundo — votado ou não.
+
+**Bosses.** Catálogo à parte de Eventos — aqui o registro é o boss, não um evento único, e
+cada um pode ter **vários horários de nascimento** (todo dia num horário, ou uma vez por
+semana), local (mapa + coordenada) e observações (o que dropa etc.), tudo opcional exceto
+o nome.
+
+Cada horário roda como **cronômetro de verdade** (segundo a segundo, `HH:MM:SS`), porque o
+horário é exato, não estimado. Quando o tempo até o próximo nascimento é curto o bastante
+pra já ter passado — dentro de 15 minutos do horário calculado — o boss vira **🟢 Ativo**
+(convenção da guild pra "provavelmente ainda tá lá"; não é uma confirmação de que alguém
+viu o boss). O catálogo ordena ativos primeiro, depois por quem nasce mais cedo.
+
+**Notificação do navegador** avisa 15min e 10min antes de cada nascimento, se a pessoa
+autorizar (botão "🔔 Avisar 15min antes"). Só funciona com a aba aberta — sem servidor
+mandando push de verdade, não dá pra avisar com o site fechado; é um alarme de aba aberta,
+não notificação em segundo plano.
+
+**Regras da guild.** Uma página só, mantida pelo admin — regras de drop, código de
+conduta, o combinado. Não é uma lista de posts: é o documento de referência, pra não
+depender de lembrar o que foi dito uma vez no Discord.
+
+**Aviso no Discord (opcional).** Quando sai anúncio, evento novo ou uma entrega é
+registrada, o site pode avisar automaticamente num canal do Discord via webhook — sem
+precisar de servidor, o próprio navegador do admin manda o POST. Sem configurar
+`VITE_DISCORD_WEBHOOK_URL`, essas ações funcionam normalmente e simplesmente não avisam
+em lugar nenhum. Detalhe de segurança em `src/lib/discord.ts`: essa URL fica pública no
+bundle do site, então o pior uso indevido possível é spam nesse canal — crie um webhook
+dedicado só pra isso.
+
+**Convite.** Em Membros, o admin tem um botão que copia o link do site — pra mandar pra
+quem vai entrar. A aprovação continua manual (ver "Acesso" acima); isso só evita ter que
+procurar a URL.
+
 **Cadastro.** Tudo acontece na página **Sets**: o admin cadastra e todo mundo reserva, no
 mesmo lugar. Os botões de cadastrar, editar e excluir só aparecem para admin. Não há
-lista fixa no código, porque servidores privados customizam sets — existe um seed com os
-sets clássicos mais comuns como ponto de partida, que deve ser revisado antes de usar.
+lista fixa no código, porque servidores privados customizam sets — cadastre o que existe
+no seu servidor.
 
 **Visão do admin.** A página **Escolhas** (só admin) lista cada player e o que ele pediu,
 agrupado por set e com a posição dele em cada fila, e separa em destaque quem ainda não
@@ -147,6 +229,28 @@ npm run deploy
 Depois adicione o domínio do Hosting em **Authentication → Settings → Domínios
 autorizados**, senão o login com Google é bloqueado em produção.
 
+### 7. Status ao vivo do MuEliteWars (opcional)
+
+O robô que preenche a página **Online** roda no GitHub Actions do próprio repositório,
+não em algum servidor à parte. Ele precisa de uma credencial de admin do Firebase (que
+ignora as regras do banco, porque quem escreve ali não é um membro logado) guardada como
+secret do repositório:
+
+1. **Console do Firebase** → ⚙️ **Configurações do projeto** → **Contas de serviço** →
+   **Gerar nova chave privada**. Baixa um `.json` — guarde-o, ele dá acesso total ao
+   projeto, não é algo pra commitar ou compartilhar.
+2. No GitHub, **Settings → Secrets and variables → Actions → New repository secret**:
+   - Nome: `FIREBASE_SERVICE_ACCOUNT`
+   - Valor: o conteúdo inteiro do `.json` baixado.
+3. Pronto — o workflow `.github/workflows/scrape-mu.yml` já roda a cada 10 minutos.
+   Pra forçar uma rodada sem esperar, **Actions → Scrape status MuEliteWars → Run
+   workflow**.
+
+Por padrão ele busca a guild `Sparks`; se o nome for outro, mude `MU_GUILD_NAME` no
+workflow. Pra rodar na sua máquina em vez do Actions: `npm run scrape:mu`, com
+`FIREBASE_SERVICE_ACCOUNT` (o mesmo JSON, numa variável de ambiente) e opcionalmente
+`FIREBASE_DATABASE_URL` no ambiente.
+
 ---
 
 ## Estrutura de dados
@@ -165,8 +269,21 @@ reservations/{setId}__{slot}__{uid}
 drops/{pushId}                    entrega registrada: quem recebeu o que e quando
                                   (chave por push: a mesma peca pode dropar de novo)
 announcements/{id}                título, texto, pinned
-events/{id}                       título, tipo, startsAt (ms)
-rsvps/{eventId}/{uid}             going | maybe | out
+events/{id}                       título, tipo, startsAt (ms) OU recurrence
+                                  { weekday, hour, minute }, pinned, rsvpEnabled
+rsvps/{eventId}/{uid}             presença em evento de data fixa: going | maybe | out
+rsvpCycles/{eventId}/{cicloId}/{uid}
+                                  presença em evento recorrente; cicloId muda
+                                  sozinho 1h antes de cada ocorrência
+muStatus                          updatedAt, guild, online, total,
+                                  chars/{nome}: classe, level, resets, online,
+                                  map, x, y, uid (casado por nick)
+bosses/{id}                       nome, notes (opcional),
+                                  schedules: [{ weekday?, hour, minute }, ...]
+guildRules                        body, updatedBy, updatedAt -- um no so
+polls/{id}                        question, options: [...], closesAt
+pollVotes/{pollId}/{uid}          optionIndex -- um voto so, nao sobrescreve
+shouts/{id}                       uid, nick, text, createdAt
 ```
 
 | Nó | Quem escreve |
@@ -178,6 +295,13 @@ rsvps/{eventId}/{uid}             going | maybe | out
 | `announcements` | admin |
 | `events` | admin |
 | `rsvps/{eventId}/{uid}` | o próprio membro |
+| `rsvpCycles/{eventId}/{cicloId}/{uid}` | o próprio membro |
+| `muStatus` | ninguém pelo cliente — só o robô do GitHub Actions, com credencial de admin que ignora as regras |
+| `bosses` | admin |
+| `guildRules` | admin |
+| `polls` | admin |
+| `pollVotes/{pollId}/{uid}` | o próprio membro, uma vez só (não sobrescreve) |
+| `shouts` | qualquer membro cria e apaga o próprio; admin apaga qualquer um |
 
 As presenças ficam em `rsvps/`, e não dentro de `events/`, justamente para que carregar
 a agenda não baixe a confirmação de todo mundo.
@@ -202,6 +326,7 @@ Duas reordenações simultâneas em pontos diferentes da mesma fila não se atro
 | `npm run fb:login` | autentica o Firebase CLI (uma vez por máquina) |
 | `npm run deploy:rules` | publica só `database.rules.json` |
 | `npm run deploy` | build + publica regras e site |
+| `npm run scrape:mu` | roda o robô de status do MuEliteWars localmente (ver setup [passo 7](#7-status-ao-vivo-do-muelitewars-opcional)) |
 
 ---
 
@@ -222,3 +347,9 @@ Duas reordenações simultâneas em pontos diferentes da mesma fila não se atro
   fuso explicitamente.
 - **Sem emulador no fluxo padrão.** `firebase.json` já tem as portas; para usar, aponte o
   SDK para os emuladores em `src/lib/firebase.ts`.
+- **O status do MuEliteWars depende do layout do site deles não mudar.** O scraper lê a
+  tabela de perfil por regex, não por API — não existe uma. Se o site mudar o HTML, o job
+  do GitHub Actions passa a falhar (aparece vermelho em **Actions**) até alguém ajustar
+  `scripts/scrape-mu.mjs`; a página **Online** simplesmente para de atualizar, não quebra.
+  O intervalo de 10 minutos também é de propósito: mais frequente que isso pesa no
+  servidor deles sem necessidade real.

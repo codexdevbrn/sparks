@@ -25,9 +25,15 @@ import type { Drop } from '../types'
  * A fila diz quem tem prioridade; esta tela diz quem recebeu. Ter as duas à
  * vista é o que permite discutir a ordem com base em fato, e não em memória.
  */
+/** Formato bruto de `rsvps` e `rsvpCycles` — só o que interessa pro ranking. */
+type RsvpTree = Record<string, Record<string, { status?: string; nick?: string }>>
+type RsvpCycleTree = Record<string, Record<string, Record<string, { status?: string; nick?: string }>>>
+
 export function History() {
   const { member, isAdmin } = useAuth()
   const [drops, setDrops] = useState<Drop[] | null>(null)
+  const [rsvps, setRsvps] = useState<RsvpTree>({})
+  const [rsvpCycles, setRsvpCycles] = useState<RsvpCycleTree>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -48,6 +54,44 @@ export function History() {
       },
     )
   }, [])
+
+  // Ranking de presença: soma "vou" em eventos de data fixa (`rsvps`) e em
+  // cada ciclo semanal de evento recorrente (`rsvpCycles`) — um Castle Siege
+  // confirmado toda semana conta uma vez por semana, que é o comportamento
+  // certo pra medir quem realmente aparece.
+  useEffect(() => {
+    const unsubRsvps = onValue(ref(db, 'rsvps'), (snap) => setRsvps(snap.val() ?? {}))
+    const unsubCycles = onValue(ref(db, 'rsvpCycles'), (snap) => setRsvpCycles(snap.val() ?? {}))
+    return () => {
+      unsubRsvps()
+      unsubCycles()
+    }
+  }, [])
+
+  const presence = useMemo(() => {
+    const byUid = new Map<string, { nick: string; count: number }>()
+    const add = (uid: string, nick: string) => {
+      const current = byUid.get(uid) ?? { nick, count: 0 }
+      current.count += 1
+      current.nick = nick
+      byUid.set(uid, current)
+    }
+    for (const perEvent of Object.values(rsvps)) {
+      for (const [uid, r] of Object.entries(perEvent)) {
+        if (r.status === 'going' && r.nick) add(uid, r.nick)
+      }
+    }
+    for (const perEvent of Object.values(rsvpCycles)) {
+      for (const perCycle of Object.values(perEvent)) {
+        for (const [uid, r] of Object.entries(perCycle)) {
+          if (r.status === 'going' && r.nick) add(uid, r.nick)
+        }
+      }
+    }
+    return [...byUid.entries()]
+      .map(([uid, v]) => ({ uid, ...v }))
+      .sort((a, b) => b.count - a.count || a.nick.localeCompare(b.nick))
+  }, [rsvps, rsvpCycles])
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase()
@@ -98,19 +142,38 @@ export function History() {
 
       <ErrorNote message={error} />
 
-      {ranking.length > 0 && (
-        <Card className="mb-6 p-4">
-          <p className="mb-2 text-xs font-medium tracking-wide text-zinc-400 uppercase">
-            Quem mais recebeu
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {ranking.map((row) => (
-              <Badge key={row.uid} tone={row.uid === member?.uid ? 'amber' : 'neutral'}>
-                {row.uid === member?.uid ? 'Você' : row.nick} · {row.count}
-              </Badge>
-            ))}
-          </div>
-        </Card>
+      {(ranking.length > 0 || presence.length > 0) && (
+        <div className="mb-6 grid gap-4 sm:grid-cols-2">
+          {ranking.length > 0 && (
+            <Card className="p-4">
+              <p className="mb-2 text-xs font-medium tracking-wide text-zinc-400 uppercase">
+                Quem mais recebeu
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {ranking.map((row) => (
+                  <Badge key={row.uid} tone={row.uid === member?.uid ? 'amber' : 'neutral'}>
+                    {row.uid === member?.uid ? 'Você' : row.nick} · {row.count}
+                  </Badge>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {presence.length > 0 && (
+            <Card className="p-4">
+              <p className="mb-2 text-xs font-medium tracking-wide text-zinc-400 uppercase">
+                Quem mais confirma presença
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {presence.slice(0, 15).map((row) => (
+                  <Badge key={row.uid} tone={row.uid === member?.uid ? 'amber' : 'green'}>
+                    {row.uid === member?.uid ? 'Você' : row.nick} · {row.count}
+                  </Badge>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2">

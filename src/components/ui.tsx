@@ -132,7 +132,7 @@ export function PageHeader({ title, description, action }: { title: string; desc
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-50">{title}</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-zinc-50">{title}</h1>
         {description && <p className="mt-1 text-sm text-zinc-400">{description}</p>}
       </div>
       {action}

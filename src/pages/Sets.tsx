@@ -6,7 +6,9 @@ import { db } from '../lib/firebase'
 import { errorMessage, isPermissionDenied } from '../lib/format'
 import { listFrom } from '../lib/rtdb'
 import { buildQueues, positionIn } from '../lib/reservations'
+import { notifyDiscord } from '../lib/discord'
 import { SetForm } from '../components/SetForm'
+import { SlotIcon } from '../components/icons'
 import {
   Badge,
   Button,
@@ -22,7 +24,6 @@ import {
 } from '../components/ui'
 import { CHAR_CLASSES, SLOT_LABELS, isSingleItem, queueKey, reservationId, slotList } from '../types'
 import type { GuildSet, Reservation, SlotKey } from '../types'
-import { SEED_SETS } from '../data/seedSets'
 
 export function Sets() {
   const { member, isAdmin } = useAuth()
@@ -179,6 +180,7 @@ export function Sets() {
         },
         [`reservations/${res.id}`]: null,
       })
+      void notifyDiscord(`✅ **${res.nick}** recebeu **${label}**`)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -226,30 +228,6 @@ export function Sets() {
     }
   }
 
-  async function handleSeed() {
-    if (!confirm(`Adicionar ${SEED_SETS.length} sets clássicos ao catálogo?`)) return
-    setBusyAdmin(true)
-    setError(null)
-    try {
-      const existing = new Set((sets ?? []).map((s) => `${s.charClass}|${s.name}`))
-      const novos = SEED_SETS.filter((s) => !existing.has(`${s.charClass}|${s.name}`))
-      if (novos.length === 0) {
-        setError('Todos os sets do seed já estão no catálogo.')
-        return
-      }
-      const updates: Record<string, object> = {}
-      for (const seed of novos) {
-        const key = push(ref(db, 'sets')).key
-        if (key) updates[`sets/${key}`] = { ...seed, createdAt: serverTimestamp() }
-      }
-      await update(ref(db), updates)
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setBusyAdmin(false)
-    }
-  }
-
   if (sets === null || all === null) return <Spinner />
 
   return (
@@ -257,18 +235,7 @@ export function Sets() {
       <PageHeader
         title="Sets e itens"
         description="Marque o que você quer dropar. Quem recebe primeiro é decisão da liderança, não ordem de chegada — a posição na lista muda conforme a guild combinar."
-        action={
-          isAdmin && (
-            <div className="flex gap-2">
-              {sets.length > 0 && (
-                <Button variant="secondary" disabled={busyAdmin} onClick={() => void handleSeed()}>
-                  Carregar seed
-                </Button>
-              )}
-              <Button onClick={() => setEditing('new')}>Cadastrar</Button>
-            </div>
-          )
-        }
+        action={isAdmin && <Button onClick={() => setEditing('new')}>Cadastrar</Button>}
       />
 
       <ErrorNote message={error} />
@@ -308,22 +275,9 @@ export function Sets() {
         <EmptyState
           title="Nada cadastrado ainda"
           description={
-            isAdmin
-              ? 'Cadastre os sets e itens do seu servidor, ou comece pelo seed de sets clássicos.'
-              : 'A liderança ainda não cadastrou nada.'
+            isAdmin ? 'Cadastre os sets e itens do seu servidor.' : 'A liderança ainda não cadastrou nada.'
           }
-          action={
-            isAdmin && (
-              <div className="flex gap-2">
-                <Button disabled={busyAdmin} onClick={() => void handleSeed()}>
-                  Carregar seed
-                </Button>
-                <Button variant="secondary" onClick={() => setEditing('new')}>
-                  Cadastrar
-                </Button>
-              </div>
-            )
-          }
+          action={isAdmin && <Button onClick={() => setEditing('new')}>Cadastrar</Button>}
         />
       ) : visibleSets.length === 0 ? (
         <EmptyState title="Nada com esses filtros" />
@@ -416,7 +370,7 @@ function SetCard({
           <p className="mt-0.5 text-xs text-zinc-500">
             {set.charClass}
             {set.tier && ` · ${set.tier}`}
-            {single && ' · item único'}
+            {single && ` · ${set.itemType ?? 'item único'}`}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -504,7 +458,10 @@ function SlotRow({
   return (
     <li className="py-2.5">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm text-zinc-300">{single ? 'Fila' : SLOT_LABELS[slot]}</span>
+        <span className="flex items-center gap-1.5 text-sm text-zinc-300">
+          <SlotIcon slot={slot} className="size-4 shrink-0 text-zinc-500" />
+          {single ? 'Fila' : SLOT_LABELS[slot]}
+        </span>
 
         <div className="flex items-center gap-2">
           {queue.length === 0 ? (

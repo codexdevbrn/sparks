@@ -3,10 +3,12 @@ import type { FormEvent } from 'react'
 import { push, ref, serverTimestamp, update } from 'firebase/database'
 import { db } from '../lib/firebase'
 import { errorMessage } from '../lib/format'
+import { SlotIcon } from './icons'
 import { Button, ErrorNote, Field, Input, Modal, Select, Textarea, cx } from './ui'
 import {
   CHAR_CLASSES,
   DEFAULT_SLOTS,
+  ITEM_TYPES,
   PIECE_SLOTS,
   SINGLE_SLOTS,
   SLOT_LABELS,
@@ -14,7 +16,7 @@ import {
   slotList,
   slotMapFrom,
 } from '../types'
-import type { CharClass, GuildSet, SlotKey } from '../types'
+import type { CharClass, GuildSet, ItemType, SlotKey } from '../types'
 
 type Kind = 'set' | 'single'
 
@@ -38,6 +40,7 @@ export function SetForm({ item, onClose }: { item: GuildSet | null; onClose: () 
   const [pieces, setPieces] = useState<SlotKey[]>(
     slotList(editingSingle ? DEFAULT_SLOTS : (item?.slots ?? DEFAULT_SLOTS)),
   )
+  const [itemType, setItemType] = useState<ItemType>(item?.itemType ?? 'Arma')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -66,6 +69,7 @@ export function SetForm({ item, onClose }: { item: GuildSet | null; onClose: () 
         tier: tier.trim(),
         notes: notes.trim(),
         slots: kind === 'single' ? SINGLE_SLOTS : slotMapFrom(pieces),
+        itemType: kind === 'single' ? itemType : null,
       }
       if (item) {
         // `update` substitui o valor de cada chave passada, então `slots` troca
@@ -112,7 +116,7 @@ export function SetForm({ item, onClose }: { item: GuildSet | null; onClose: () 
           </div>
         </Field>
 
-        {kind === 'set' && (
+        {kind === 'set' ? (
           <Field label="Peças reserváveis">
             <div className="flex flex-wrap gap-2 pt-1">
               {PIECE_SLOTS.map((slot) => (
@@ -126,10 +130,21 @@ export function SetForm({ item, onClose }: { item: GuildSet | null; onClose: () 
                     onChange={() => togglePiece(slot)}
                     className="size-3.5 accent-amber-500"
                   />
+                  <SlotIcon slot={slot} className="size-3.5 shrink-0" />
                   {SLOT_LABELS[slot]}
                 </label>
               ))}
             </div>
+          </Field>
+        ) : (
+          <Field label="Tipo do item">
+            <Select value={itemType} onChange={(e) => setItemType(e.target.value as ItemType)}>
+              {ITEM_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
           </Field>
         )}
 

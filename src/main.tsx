@@ -38,3 +38,12 @@ async function boot() {
 }
 
 void boot()
+
+// Registra depois do load pra não competir com o carregamento inicial.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // PWA é bônus, não requisito — falhar aqui não pode derrubar o app.
+    })
+  })
+}

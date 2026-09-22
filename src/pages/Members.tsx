@@ -29,6 +29,7 @@ export function Members() {
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [inviteCopied, setInviteCopied] = useState(false)
 
   useEffect(() => {
     const unsubMembers = onValue(
@@ -95,11 +96,31 @@ export function Members() {
     }
   }
 
+  async function copyInvite() {
+    try {
+      await navigator.clipboard.writeText(window.location.origin)
+      setInviteCopied(true)
+      setTimeout(() => setInviteCopied(false), 2000)
+    } catch {
+      // Sem permissão de clipboard — sem crise, o link já está na barra de endereço.
+    }
+  }
+
   if (members === null) return <Spinner />
 
   return (
     <>
-      <PageHeader title="Membros" description={`${active.length} na guild.`} />
+      <PageHeader
+        title="Membros"
+        description={`${active.length} na guild.`}
+        action={
+          isAdmin && (
+            <Button variant="secondary" size="sm" onClick={() => void copyInvite()}>
+              {inviteCopied ? 'Copiado!' : 'Copiar link de convite'}
+            </Button>
+          )
+        }
+      />
       <ErrorNote message={error} />
 
       {isAdmin && pending.length > 0 && (

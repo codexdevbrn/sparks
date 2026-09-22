@@ -1,0 +1,28 @@
+name: Scrape status MuEliteWars
+
+on:
+  schedule:
+    # A cada 10 minutos. Em repositório privado, Actions consome os minutos
+    # grátis do plano (2000/mês) — 10 em 10 fica bem dentro disso; 5 em 5
+    # quase estoura sozinho. GitHub também não garante o horário exato sob
+    # carga, então trate como "poucos minutos de atraso", não um relógio
+    # preciso.
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: node scripts/scrape-mu.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_DATABASE_URL: https://sparks-75de5-default-rtdb.firebaseio.com
