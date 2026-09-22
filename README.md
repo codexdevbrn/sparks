@@ -14,10 +14,10 @@ Database** + Hosting).
 além da tela de espera. Um admin aprova em **Membros**. As regras do banco impedem que
 alguém altere o próprio cargo.
 
-**Filas por peça.** Várias pessoas podem querer a mesma peça (elmo, armadura, calça,
-luvas, botas, arma, escudo): elas formam uma fila. A ordem não é automática — **a
-liderança decide**, com setas de subir/descer na página Sets, segundo o critério da guild
-(quem joga mais).
+**Listas por peça.** Várias pessoas podem querer a mesma peça (elmo, armadura, calça,
+luvas, botas, arma, escudo). A ordem **não é de chegada**: a liderança decide, com setas
+de subir/descer na página Sets, pelo critério da guild (quem joga mais). Esse critério
+vive fora do sistema — o site só guarda a decisão.
 
 O que o servidor garante é que a mesma pessoa não entre duas vezes na mesma fila: o
 registro vive em `reservations/{setId}__{slot}__{uid}` e a regra de criação exige
@@ -28,12 +28,23 @@ dá para gravar em caminho arbitrário e furar a identidade.
 admin — se o membro pudesse, ele se colocaria em primeiro. Membro só cria a própria
 entrada e sai da fila; admin também tira qualquer um.
 
-**Histórico de drops.** Quando a peça sai, o admin clica em *entregou* na fila, o que
-registra a entrega e tira a pessoa daquela fila numa escrita atômica. Os outros continuam
-na fila — a peça pode dropar de novo. A página **Histórico** é visível para toda a guild e
-mostra o ranking de quem mais recebeu; a tela de Escolhas mostra o total recebido por
-player ao lado dos pedidos. Fila é prioridade, histórico é fato — ter os dois à vista é o
-que permite discutir a ordem sem depender de memória.
+**Entrega peça a peça.** Um set não sai de uma vez. Em **Escolhas**, o botão *Fazer
+entrega* abre o pedido do player com todos os sets dele e o progresso de cada um
+(`3/5 · completo`): as peças já entregues aparecem riscadas com a data, as que faltam
+aparecem com botão de entregar. O admin vai marcando até fechar o set.
+
+Cada entrega grava o registro e tira a peça da lista daquele player, numa escrita atômica.
+Os outros interessados continuam na lista — a peça pode dropar de novo. Há também um
+*entregou* direto na lista da peça, em Sets, para quando o contexto é a peça e não o
+player.
+
+A entrega **não é travada pela posição**: a posição aparece como contexto, mas o admin
+entrega a quem decidir. Quem recebe primeiro é conversa da guild, não regra do sistema.
+
+**Histórico.** A página **Histórico** é visível para toda a guild e mostra o ranking de
+quem mais recebeu; a tela de Escolhas mostra o total recebido por player ao lado dos
+pedidos. Lista é prioridade, histórico é fato — ter os dois à vista é o que permite
+discutir a ordem sem depender de memória.
 
 O log é append-only: admin registra e pode apagar um registro errado, mas ninguém edita.
 Ele também sobrevive à exclusão do set e à remoção do membro — histórico que some deixa

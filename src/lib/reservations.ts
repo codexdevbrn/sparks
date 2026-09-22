@@ -1,5 +1,5 @@
 import { SLOTS, queueKey } from '../types'
-import type { Reservation } from '../types'
+import type { Drop, Reservation } from '../types'
 
 export type SetGroup = {
   setId: string
@@ -43,6 +43,68 @@ export function buildQueues(list: Reservation[]): Map<string, Reservation[]> {
 export function positionIn(queue: Reservation[] | undefined, uid: string): number {
   if (!queue) return 0
   return queue.findIndex((r) => r.uid === uid) + 1
+}
+
+export type SetProgress = {
+  setId: string
+  setName: string
+  charClass: string
+  single: boolean
+  /** Peças que a pessoa ainda espera receber. */
+  pending: Reservation[]
+  /** Peças que já foram entregues a ela. */
+  delivered: Drop[]
+}
+
+/**
+ * Progresso de um player por set: o que já recebeu e o que falta.
+ *
+ * Um set é entregue aos poucos, e a peça entregue some da fila — então o que
+ * falta vive em `reservations` e o que saiu vive em `drops`. Nenhum dos dois
+ * sozinho conta a história.
+ */
+export function progressFor(uid: string, reservations: Reservation[], drops: Drop[]): SetProgress[] {
+  const bySet = new Map<string, SetProgress>()
+
+  const ensure = (setId: string, setName: string, charClass: string) => {
+    const current = bySet.get(setId) ?? {
+      setId,
+      setName,
+      charClass,
+      single: false,
+      pending: [],
+      delivered: [],
+    }
+    bySet.set(setId, current)
+    return current
+  }
+
+  for (const res of reservations) {
+    if (res.uid !== uid) continue
+    const entry = ensure(res.setId, res.setName, res.charClass)
+    entry.pending.push(res)
+    if (res.slot === 'item') entry.single = true
+  }
+
+  for (const drop of drops) {
+    if (drop.uid !== uid) continue
+    const entry = ensure(drop.setId, drop.setName, drop.charClass)
+    entry.delivered.push(drop)
+    if (drop.slot === 'item') entry.single = true
+  }
+
+  for (const entry of bySet.values()) {
+    entry.pending.sort((a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot))
+    entry.delivered.sort((a, b) => SLOTS.indexOf(a.slot) - SLOTS.indexOf(b.slot))
+  }
+
+  return [...bySet.values()].sort((a, b) => {
+    // Set incompleto primeiro: é nele que o admin ainda tem trabalho.
+    const aDone = a.pending.length === 0
+    const bDone = b.pending.length === 0
+    if (aDone !== bDone) return aDone ? 1 : -1
+    return a.setName.localeCompare(b.setName)
+  })
 }
 
 /**

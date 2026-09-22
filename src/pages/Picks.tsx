@@ -4,8 +4,10 @@ import { db } from '../lib/firebase'
 import { errorMessage } from '../lib/format'
 import { listFrom } from '../lib/rtdb'
 import { buildQueues, groupBySet, positionIn } from '../lib/reservations'
+import { DeliveryPanel } from '../components/DeliveryPanel'
 import {
   Badge,
+  Button,
   Card,
   EmptyState,
   ErrorNote,
@@ -38,6 +40,7 @@ export function Picks() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [delivering, setDelivering] = useState<Member | null>(null)
 
   useEffect(() => {
     const unsubMembers = onValue(
@@ -127,7 +130,7 @@ export function Picks() {
     <>
       <PageHeader
         title="Escolhas da guild"
-        description={`${players} player(es) · ${total} pedido(s) no total. A ordem de cada fila se ajusta em Sets.`}
+        description={`${players} player(es) · ${total} pedido(s). Abra "Fazer entrega" para ir marcando peça por peça. A ordem das listas se ajusta em Sets.`}
       />
 
       <ErrorNote message={error} />
@@ -152,6 +155,7 @@ export function Picks() {
               queues={queues}
               busy={busy}
               onRelease={(res) => void release(res)}
+              onDeliver={() => setDelivering(player.member)}
             />
           ))}
 
@@ -175,8 +179,20 @@ export function Picks() {
                       </div>
                       {/* Quem já recebeu e não pediu mais nada é caso diferente
                           de quem nunca participou. */}
-                      {received > 0 && <Badge tone="green">{received} recebido(s)</Badge>}
-                      <span className="text-xs text-zinc-600">nenhum pedido</span>
+                      {received > 0 ? (
+                        <>
+                          <Badge tone="green">{received} recebido(s)</Badge>
+                          <button
+                            type="button"
+                            onClick={() => setDelivering(member)}
+                            className="text-xs text-amber-400 transition-colors hover:text-amber-300"
+                          >
+                            ver entregas
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs text-zinc-600">nunca pediu nada</span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -184,6 +200,16 @@ export function Picks() {
             </section>
           )}
         </div>
+      )}
+
+      {delivering && (
+        <DeliveryPanel
+          key={delivering.uid}
+          target={delivering}
+          reservations={reservations}
+          drops={drops}
+          onClose={() => setDelivering(null)}
+        />
       )}
     </>
   )
@@ -196,11 +222,13 @@ function PlayerCard({
   queues,
   busy,
   onRelease,
+  onDeliver,
 }: {
   player: PlayerPicks
   queues: Map<string, Reservation[]>
   busy: string | null
   onRelease: (res: Reservation) => void
+  onDeliver: () => void
 }) {
   const { member, reservations, received } = player
   const groups = groupBySet(reservations)
@@ -218,6 +246,9 @@ function PlayerCard({
         {member.role === 'admin' && <Badge tone="amber">Admin</Badge>}
         <Badge tone="blue">{reservations.length} pedido(s)</Badge>
         {received > 0 && <Badge tone="green">{received} recebido(s)</Badge>}
+        <Button size="sm" onClick={onDeliver}>
+          Fazer entrega
+        </Button>
       </div>
 
       <div className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">

@@ -256,7 +256,7 @@ export function Sets() {
     <>
       <PageHeader
         title="Sets e itens"
-        description="Entre na fila do que você quer dropar. A ordem de cada fila é definida pela liderança."
+        description="Marque o que você quer dropar. Quem recebe primeiro é decisão da liderança, não ordem de chegada — a posição na lista muda conforme a guild combinar."
         action={
           isAdmin && (
             <div className="flex gap-2">
@@ -511,8 +511,13 @@ function SlotRow({
             <span className="text-xs text-zinc-600">ninguém ainda</span>
           ) : (
             <span className="text-xs text-zinc-500">
-              {queue.length} na fila
-              {myPosition > 0 && <span className="text-amber-400"> · você é {myPosition}º</span>}
+              {queue.length} {queue.length === 1 ? 'quer' : 'querem'}
+              {myPosition > 0 && queue.length > 1 && (
+                <span className="text-amber-400"> · você é {myPosition}º</span>
+              )}
+              {myPosition > 0 && queue.length === 1 && (
+                <span className="text-amber-400"> · você</span>
+              )}
             </span>
           )}
 
@@ -527,6 +532,12 @@ function SlotRow({
           )}
         </div>
       </div>
+
+      {queue.length > 1 && (
+        <p className="mt-1 text-[11px] text-zinc-600">
+          Ordem definida pela liderança — não é ordem de chegada.
+        </p>
+      )}
 
       {queue.length > 0 && (
         <ol className="mt-1.5 space-y-0.5">
