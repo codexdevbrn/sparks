@@ -71,11 +71,14 @@ function sanitizeKey(name) {
   return name.replace(/[.#$/[\]]/g, '_')
 }
 
+// Guardado fora de main() para ser encerrado tambem quando main() lanca.
+let app = null
+
 async function main() {
   const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT
   if (!serviceAccountJson) throw new Error('Variável FIREBASE_SERVICE_ACCOUNT ausente.')
 
-  initializeApp({
+  app = initializeApp({
     credential: cert(JSON.parse(serviceAccountJson)),
     databaseURL: DATABASE_URL,
   })
@@ -148,7 +151,15 @@ async function main() {
   console.log(`OK: ${onlineCount}/${names.length} online${failed ? ` (${failed} falha(s))` : ''}.`)
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exitCode = 1
-})
+// O RTDB do Admin SDK abre um websocket que segura o event loop: sem fechar, o
+// processo nunca encerra. No GitHub Actions isso prenderia o job ate o timeout
+// e o marcaria como falha, mesmo com a gravacao bem-sucedida. Vale tanto no
+// sucesso quanto no erro -- uma falha depois da conexao aberta travaria igual.
+main()
+  .catch((err) => {
+    console.error(err)
+    process.exitCode = 1
+  })
+  .finally(async () => {
+    if (app) await app.delete()
+  })
