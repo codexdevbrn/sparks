@@ -1,0 +1,7 @@
+# Normaliza fim de linha para LF no repositorio, independente do SO de quem clona.
+# Sem isso, Windows e Linux geram diffs inteiros so por causa de CRLF.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary

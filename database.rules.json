@@ -1,0 +1,147 @@
+// Regras do Realtime Database.
+//
+// A linguagem nao tem funcoes, por isso a checagem de cargo aparece repetida:
+//   membro -> role do proprio usuario e 'member' ou 'admin'
+//   admin  -> role do proprio usuario e 'admin'
+//
+// Permissao CASCATEIA para baixo: concedida num no mais raso, vale para tudo
+// abaixo, e regra mais funda so pode conceder, nunca revogar. Por isso a raiz
+// nega tudo e cada no libera o que precisa.
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    // ---------------- membros ----------------
+    "members": {
+      // Membro le a lista inteira; pendente le apenas o proprio no (abaixo).
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+
+      "$uid": {
+        ".read": "auth != null && $uid === auth.uid",
+
+        // Admin escreve em qualquer membro. O proprio usuario cria o seu no
+        // como 'pending' e depois edita o perfil sem nunca mudar o cargo.
+        ".write": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'admin' || ($uid === auth.uid && ((!data.exists() && newData.child('role').val() === 'pending') || (data.exists() && newData.exists() && newData.child('role').val() === data.child('role').val()))))",
+
+        "uid": { ".validate": "newData.val() === $uid" },
+        "role": { ".validate": "newData.val() === 'pending' || newData.val() === 'member' || newData.val() === 'admin'" },
+        "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "charClass": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "email": { ".validate": "newData.isString()" },
+        "displayName": { ".validate": "newData.isString()" },
+        "photoURL": { ".validate": "newData.isString()" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // ---------------- catalogo de sets ----------------
+    "sets": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+      ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
+
+      "$setId": {
+        ".validate": "newData.hasChildren(['name', 'charClass', 'slots']) && newData.child('slots').hasChildren()",
+
+        "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 60" },
+        "charClass": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "tier": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "notes": { ".validate": "newData.isString() && newData.val().length <= 300" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "slots": {
+          "$slot": { ".validate": "newData.val() === true" }
+        },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // ---------------- reservas de pecas ----------------
+    // Exclusividade: a criacao so passa em no INEXISTENTE. Duas pessoas
+    // clicando na mesma peca -> a segunda e recusada pelo servidor.
+    // Nao existe update: so criar e apagar.
+    "reservations": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+
+      "$resId": {
+        ".write": "(auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin') && !data.exists() && newData.exists() && newData.child('uid').val() === auth.uid) || (auth != null && data.exists() && !newData.exists() && (root.child('members/' + auth.uid + '/role').val() === 'admin' || data.child('uid').val() === auth.uid))",
+
+        // A chave tem de ser '<setId>__<slot>' e a peca tem de existir no set,
+        // senao daria para burlar a exclusividade gravando em outro caminho.
+        ".validate": "newData.hasChildren(['setId', 'slot', 'uid', 'nick']) && $resId === newData.child('setId').val() + '__' + newData.child('slot').val() && root.child('sets/' + newData.child('setId').val() + '/slots/' + newData.child('slot').val()).val() === true",
+
+        "setId": { ".validate": "newData.isString()" },
+        "setName": { ".validate": "newData.isString() && newData.val().length <= 60" },
+        "charClass": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "slot": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "uid": { ".validate": "newData.val() === auth.uid" },
+        "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // ---------------- anuncios ----------------
+    "announcements": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+      ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
+
+      "$id": {
+        ".validate": "newData.hasChildren(['title', 'body'])",
+
+        "title": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
+        "body": { ".validate": "newData.isString() && newData.val().length <= 4000" },
+        "pinned": { ".validate": "newData.isBoolean()" },
+        "authorUid": { ".validate": "newData.isString()" },
+        "authorName": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // ---------------- eventos ----------------
+    "events": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+      ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
+
+      "$id": {
+        ".validate": "newData.hasChildren(['title', 'startsAt'])",
+
+        "title": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
+        "description": { ".validate": "newData.isString() && newData.val().length <= 2000" },
+        "type": { ".validate": "newData.isString() && newData.val().length <= 30" },
+        "startsAt": { ".validate": "newData.isNumber()" },
+        "createdBy": { ".validate": "newData.isString()" },
+        "createdByName": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "createdAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
+
+    // ---------------- presenca em eventos ----------------
+    // Fora do no de eventos, para a lista de eventos nao arrastar todas as
+    // presencas em cada leitura.
+    "rsvps": {
+      ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+
+      "$eventId": {
+        // Admin apaga o no inteiro junto com o evento.
+        ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin' && !newData.exists()",
+
+        "$uid": {
+          // Cada membro controla apenas a propria presenca.
+          ".write": "auth != null && $uid === auth.uid && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
+          ".validate": "newData.hasChildren(['status', 'nick'])",
+
+          "uid": { ".validate": "newData.val() === $uid" },
+          "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+          "status": { ".validate": "newData.val() === 'going' || newData.val() === 'maybe' || newData.val() === 'out'" },
+          "updatedAt": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        }
+      }
+    }
+  }
+}
