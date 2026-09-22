@@ -133,12 +133,16 @@ conduta, o combinado. Não é uma lista de posts: é o documento de referência,
 depender de lembrar o que foi dito uma vez no Discord.
 
 **Aviso no Discord (opcional).** Quando sai anúncio, evento novo ou uma entrega é
-registrada, o site pode avisar automaticamente num canal do Discord via webhook — sem
-precisar de servidor, o próprio navegador do admin manda o POST. Sem configurar
-`VITE_DISCORD_WEBHOOK_URL`, essas ações funcionam normalmente e simplesmente não avisam
-em lugar nenhum. Detalhe de segurança em `src/lib/discord.ts`: essa URL fica pública no
-bundle do site, então o pior uso indevido possível é spam nesse canal — crie um webhook
-dedicado só pra isso.
+registrada, o site pode avisar automaticamente num canal do Discord via webhook. O
+navegador chama `/api/discord` — uma **Edge Function da Vercel** (`api/discord.ts`), que
+repassa pro webhook. A URL do webhook fica só no servidor (`DISCORD_WEBHOOK_URL`, **sem**
+prefixo `VITE_`, configurada como env var do projeto na Vercel), nunca no bundle público —
+diferente da maioria das variáveis deste projeto, essa não pode ir pro `.env.local` normal
+nem levar `VITE_` no nome, senão vaza pro navegador.
+
+Essa integração **só funciona publicada na Vercel**. No Firebase Hosting (que só serve
+arquivo estático, sem função nenhuma) a rota `/api/discord` não existe, e o aviso
+simplesmente falha em silêncio — o resto do site continua funcionando normal.
 
 **Convite.** Em Membros, o admin tem um botão que copia o link do site — pra mandar pra
 quem vai entrar. A aprovação continua manual (ver "Acesso" acima); isso só evita ter que

@@ -9,7 +9,6 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string
   readonly VITE_FIREBASE_APP_ID: string
   readonly VITE_GUILD_NAME?: string
-  readonly VITE_DISCORD_WEBHOOK_URL?: string
   readonly VITE_DISCORD_INVITE_URL?: string
 }
 

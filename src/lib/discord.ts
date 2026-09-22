@@ -1,25 +1,16 @@
 /**
  * Aviso opcional no Discord da guild quando algo acontece no site.
  *
- * Sem backend, quem manda a mensagem é o próprio navegador do admin que fez
- * a ação — webhook do Discord aceita POST direto do navegador (CORS
- * liberado por eles). Só funciona se `VITE_DISCORD_WEBHOOK_URL` estiver
- * configurada; sem isso, não faz nada, e nenhuma tela depende do resultado.
- *
- * Aviso: essa URL de webhook fica pública no bundle do site, do jeito que
- * qualquer variável `VITE_*` fica. Ao contrário das chaves do Firebase, ela
- * não é protegida por regra nenhuma — quem a pegar pode postar no canal
- * configurado. O pior uso indevido possível é spam nesse canal (o webhook
- * não dá nenhum outro acesso ao servidor); ainda assim, crie um webhook só
- * pra isso, num canal que você não se importa de precisar recriar se
- * alguém abusar.
+ * O navegador chama `/api/discord` (Vercel Edge Function, ver `api/discord.ts`),
+ * que repassa pro webhook do Discord. A URL do webhook fica só no servidor
+ * (`DISCORD_WEBHOOK_URL`, sem prefixo `VITE_`) — nunca no bundle público do
+ * site. Se essa rota não existir (site publicado só no Firebase Hosting, que
+ * não roda função nenhuma) ou o webhook não estiver configurado na Vercel,
+ * a chamada falha em silêncio: nenhuma tela depende do resultado.
  */
-const WEBHOOK_URL = import.meta.env.VITE_DISCORD_WEBHOOK_URL as string | undefined
-
 export async function notifyDiscord(content: string): Promise<void> {
-  if (!WEBHOOK_URL) return
   try {
-    await fetch(WEBHOOK_URL, {
+    await fetch('/api/discord', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
