@@ -106,7 +106,13 @@ export function Online() {
           ) : (
             <div className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {online.map((c) => (
-                <CharCard key={c.id} char={c} mine={c.uid === member?.uid} />
+                <CharCard
+                  key={c.id}
+                  char={c}
+                  mine={c.uid === member?.uid}
+                  sweptAt={status.updatedAt}
+                  now={now}
+                />
               ))}
             </div>
           )}
@@ -141,19 +147,50 @@ export function Online() {
   )
 }
 
-function CharCard({ char, mine }: { char: MuCharStatus; mine: boolean }) {
+/**
+ * Quando a leitura de um personagem falha, o robô preserva o registro anterior
+ * em vez de apagá-lo — melhor dado velho que buraco. Mas aí a tela precisa
+ * dizer que aquele registro não é da última varredura, senão mente.
+ */
+function isStale(char: MuCharStatus, sweptAt: number): boolean {
+  // Uma folga de 2min cobre a duração da própria varredura, que lê um
+  // personagem por vez e demora alguns segundos por leitura.
+  return typeof char.updatedAt === 'number' && sweptAt - char.updatedAt > 120_000
+}
+
+function CharCard({
+  char,
+  mine,
+  sweptAt,
+  now,
+}: {
+  char: MuCharStatus
+  mine: boolean
+  sweptAt: number
+  now: number
+}) {
+  const stale = isStale(char, sweptAt)
+
   return (
-    <Card className={cx('p-4', mine && 'border-amber-500/40 bg-amber-500/5')}>
+    <Card className={cx('p-4', mine && 'border-amber-500/40 bg-amber-500/5', stale && 'opacity-60')}>
       <div className="flex items-center gap-2">
-        <span className="size-2.5 shrink-0 animate-pulse rounded-full bg-emerald-500" />
+        <span
+          className={cx(
+            'size-2.5 shrink-0 rounded-full',
+            stale ? 'bg-zinc-600' : 'animate-pulse bg-emerald-500',
+          )}
+        />
         <h3 className="truncate text-sm font-semibold text-zinc-50">{char.name}</h3>
         {mine && <Badge tone="amber">Você</Badge>}
+        {stale && char.updatedAt !== undefined && (
+          <span className="text-xs text-zinc-500">{timeAgo(char.updatedAt, now)}</span>
+        )}
       </div>
       <p className="mt-1 text-xs text-zinc-400">
         {char.charClass || 'Classe desconhecida'} · Lvl {char.level}
         {char.resets > 0 && ` · ${char.resets} resets`}
       </p>
-      <p className="mt-2 text-xs text-emerald-400">
+      <p className={cx('mt-2 text-xs', stale ? 'text-zinc-500' : 'text-emerald-400')}>
         {char.map} ({char.x}/{char.y})
       </p>
     </Card>

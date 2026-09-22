@@ -2,25 +2,42 @@ name: Scrape status MuEliteWars
 
 on:
   schedule:
-    # A cada 10 minutos. Em repositório privado, Actions consome os minutos
-    # grátis do plano (2000/mês) — 10 em 10 fica bem dentro disso; 5 em 5
-    # quase estoura sozinho. GitHub também não garante o horário exato sob
-    # carga, então trate como "poucos minutos de atraso", não um relógio
-    # preciso.
+    # A cada 10 minutos. O repositorio e publico, entao minutos de Actions sao
+    # gratuitos e ilimitados -- a frequencia nao custa nada hoje.
+    #
+    # Se algum dia o repositorio virar privado, refaca a conta: */10 sao ~4.300
+    # execucoes por mes, e o GitHub cobra no minimo 1 minuto por job. Isso
+    # estoura os 2.000 minutos gratuitos do plano em cerca de duas semanas.
+    #
+    # O GitHub tambem nao garante o horario exato sob carga: trate como "poucos
+    # minutos de atraso", nao um relogio preciso. E desativa workflow agendado
+    # depois de 60 dias sem atividade no repositorio -- se o Online parar de
+    # atualizar do nada, e o primeiro lugar para olhar.
     - cron: '*/10 * * * *'
   workflow_dispatch: {}
+
+# Duas execucoes ao mesmo tempo escreveriam no mesmo no do banco. Se uma rodada
+# atrasar e a proxima disparar, a nova espera a anterior terminar.
+concurrency:
+  group: scrape-mu
+  cancel-in-progress: false
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
-      - run: npm ci
+      # O script so precisa de firebase-admin. `npm ci` puxava tambem vite,
+      # tailwind, typescript e firebase-tools -- minutos jogados fora a cada
+      # 10 minutos, 144 vezes por dia.
+      - run: npm ci --omit=dev
 
       - run: node scripts/scrape-mu.mjs
         env:

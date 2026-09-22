@@ -140,6 +140,12 @@ prefixo `VITE_`, configurada como env var do projeto na Vercel), nunca no bundle
 diferente da maioria das variáveis deste projeto, essa não pode ir pro `.env.local` normal
 nem levar `VITE_` no nome, senão vaza pro navegador.
 
+Esconder a URL, porém, não basta: sem autenticação a própria rota vira canal de spam para
+quem descobrir o endereço. Por isso o navegador manda junto o **ID token** do Firebase, e a
+função só aceita membro aprovado — `pending` recebe 403. A verificação não usa service
+account: a função lê `members/{uid}/role` na API REST do RTDB **com o token de quem
+chamou**, e é o banco que recusa token forjado ou expirado.
+
 Essa integração **só funciona publicada na Vercel**. No Firebase Hosting (que só serve
 arquivo estático, sem função nenhuma) a rota `/api/discord` não existe, e o aviso
 simplesmente falha em silêncio — o resto do site continua funcionando normal.

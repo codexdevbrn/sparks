@@ -95,15 +95,20 @@ async function main() {
     if (m?.nick) uidByNick.set(String(m.nick).toLowerCase(), uid)
   }
 
-  const chars = {}
-  let onlineCount = 0
+  // Gravação é `set()` no nó inteiro, então um personagem que falhou agora
+  // sumiria da tela. Partimos do que já estava lá e sobrescrevemos só o que
+  // conseguimos ler: dado velho, com seu `updatedAt` antigo, é melhor que
+  // ninguém. A tela mostra a idade de cada registro.
+  const previousSnap = await db.ref('muStatus/chars').get()
+  const chars = previousSnap.val() ?? {}
+
+  let failed = 0
   const updatedAt = Date.now()
 
   for (const name of names) {
     try {
       const html = await fetchHtml(`/profile/character/${encodeURIComponent(name)}`)
       const parsed = parseCharPage(html)
-      if (parsed.online) onlineCount += 1
       chars[sanitizeKey(name)] = {
         name,
         ...parsed,
@@ -111,11 +116,26 @@ async function main() {
         updatedAt,
       }
     } catch (err) {
+      failed += 1
       console.warn(`Falhou ao buscar "${name}": ${err.message}`)
     }
     // Um intervalo pequeno entre requisições, por educação com o servidor deles.
     await sleep(400)
   }
+
+  // Quem saiu da guild não deve ficar preso no nó para sempre.
+  const current = new Set(names.map(sanitizeKey))
+  for (const key of Object.keys(chars)) {
+    if (!current.has(key)) delete chars[key]
+  }
+
+  if (failed === names.length) {
+    throw new Error('Nenhum personagem pôde ser lido — o site pode estar fora do ar.')
+  }
+
+  // Sai do resultado final, e nao do laco: assim o numero bate com a lista
+  // exibida, que pode conter registro preservado de uma rodada anterior.
+  const onlineCount = Object.values(chars).filter((c) => c.online).length
 
   await db.ref('muStatus').set({
     updatedAt,
@@ -125,7 +145,7 @@ async function main() {
     chars,
   })
 
-  console.log(`OK: ${onlineCount}/${names.length} online.`)
+  console.log(`OK: ${onlineCount}/${names.length} online${failed ? ` (${failed} falha(s))` : ''}.`)
 }
 
 main().catch((err) => {
