@@ -179,6 +179,8 @@ export type Announcement = {
   id: string
   title: string
   body: string
+  /** Link já normalizado da imagem; vazio quando não há. */
+  imageUrl: string
   pinned: boolean
   authorUid: string
   authorName: string

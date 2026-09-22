@@ -10,6 +10,18 @@ Database** + Hosting).
 
 ## Como funciona
 
+**Anúncios com imagem.** O admin escreve o aviso e pode colar o link de uma print. Não há
+upload: o Cloud Storage não está provisionado no projeto, e habilitá-lo em projeto novo
+normalmente exige o plano Blaze. O campo guarda uma URL `https`, e o formulário mostra
+pré-visualização ao vivo — se o link não servir uma imagem, quem publica descobre na hora,
+e não a guild depois.
+
+Links do **Google Drive** são convertidos automaticamente, porque o link de
+compartilhamento aponta para uma página HTML e não para o arquivo. A conversão usa um
+endereço não documentado pelo Google, que já mudou no passado e tem limite de tráfego em
+arquivo público — o formulário avisa isso quando detecta um link do Drive. Para imagem que
+precisa durar, prefira um host de imagem de verdade.
+
 **Acesso.** Login com Google. Quem entra pela primeira vez vira `pending` e não vê nada
 além da tela de espera. Um admin aprova em **Membros**. As regras do banco impedem que
 alguém altere o próprio cargo.

@@ -5,6 +5,8 @@ import { useAuth } from '../lib/auth'
 import { db } from '../lib/firebase'
 import { errorMessage, formatDateTime } from '../lib/format'
 import { listFrom } from '../lib/rtdb'
+import { normalizeImageUrl } from '../lib/imageUrl'
+import { ImageUrlField } from '../components/ImageUrlField'
 import {
   Badge,
   Button,
@@ -109,6 +111,8 @@ export function Announcements() {
                 )}
               </div>
               <p className="mt-3 text-sm whitespace-pre-wrap text-zinc-300">{item.body}</p>
+
+              <AnnouncementImage url={item.imageUrl} />
             </Card>
           ))}
         </div>
@@ -127,6 +131,31 @@ export function Announcements() {
   )
 }
 
+/**
+ * Imagem do anúncio, que some sozinha se o link morrer.
+ *
+ * Hospedagem de terceiro cai, e um ícone de imagem quebrada no mural da guild é
+ * pior que imagem nenhuma. O estado local resolve isso sem mexer no DOM por
+ * fora do React.
+ */
+function AnnouncementImage({ url }: { url: string | undefined }) {
+  const [broken, setBroken] = useState(false)
+
+  if (!url || broken) return null
+
+  return (
+    <a href={url} target="_blank" rel="noreferrer noopener" className="mt-3 block">
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        onError={() => setBroken(true)}
+        className="max-h-96 w-full rounded-lg border border-zinc-800 object-contain"
+      />
+    </a>
+  )
+}
+
 function AnnouncementForm({
   item,
   authorUid,
@@ -140,6 +169,7 @@ function AnnouncementForm({
 }) {
   const [title, setTitle] = useState(item?.title ?? '')
   const [body, setBody] = useState(item?.body ?? '')
+  const [imageUrl, setImageUrl] = useState(item?.imageUrl ?? '')
   const [pinned, setPinned] = useState(item?.pinned ?? false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -149,10 +179,14 @@ function AnnouncementForm({
     setBusy(true)
     setError(null)
     try {
+      // Guarda já convertido: a tela do mural não deve saber de Drive.
+      const image = normalizeImageUrl(imageUrl)
+
       if (item) {
         await update(ref(db, `announcements/${item.id}`), {
           title: title.trim(),
           body: body.trim(),
+          imageUrl: image,
           pinned,
           updatedAt: serverTimestamp(),
         })
@@ -160,6 +194,7 @@ function AnnouncementForm({
         await push(ref(db, 'announcements'), {
           title: title.trim(),
           body: body.trim(),
+          imageUrl: image,
           pinned,
           authorUid,
           authorName,
@@ -190,6 +225,8 @@ function AnnouncementForm({
             required
           />
         </Field>
+
+        <ImageUrlField value={imageUrl} onChange={setImageUrl} />
 
         <label className="flex items-center gap-2 text-sm text-zinc-300">
           <input

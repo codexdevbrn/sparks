@@ -122,6 +122,8 @@
 
         "title": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
         "body": { ".validate": "newData.isString() && newData.val().length <= 4000" },
+        // Link externo de imagem. So https, para nao servir javascript: nem data:.
+        "imageUrl": { ".validate": "newData.isString() && (newData.val() === '' || (newData.val().length <= 500 && newData.val().matches(/^https:\\/\\/.*/)))" },
         "pinned": { ".validate": "newData.isBoolean()" },
         "authorUid": { ".validate": "newData.isString()" },
         "authorName": { ".validate": "newData.isString() && newData.val().length <= 20" },
