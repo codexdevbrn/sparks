@@ -126,8 +126,16 @@ export type GuildSet = {
   createdAt?: number
 }
 
+/**
+ * Interesse de uma pessoa numa peça. Mais de uma pessoa pode querer a mesma
+ * peça: elas formam uma fila, cuja ordem o admin define.
+ */
 export type Reservation = {
-  /** Sempre `${setId}__${slot}` — é o que garante a exclusividade. */
+  /**
+   * Sempre `${setId}__${slot}__${uid}`. A chave inclui o uid porque a peça
+   * aceita vários interessados; o que ela impede é a mesma pessoa entrar duas
+   * vezes na mesma fila.
+   */
   id: string
   setId: string
   setName: string
@@ -135,6 +143,12 @@ export type Reservation = {
   slot: SlotKey
   uid: string
   nick: string
+  /**
+   * Posição na fila da peça: menor vem primeiro. Nasce como `Date.now()`, o que
+   * dá a ordem de chegada e deixa espaço de sobra entre os valores. Reordenar é
+   * trocar esse número entre dois vizinhos — não renumera a fila inteira.
+   */
+  order: number
   createdAt?: number
 }
 
@@ -180,7 +194,12 @@ export type Rsvp = {
   updatedAt?: number
 }
 
-/** Chave determinística de uma reserva. */
-export function reservationId(setId: string, slot: SlotKey): string {
+/** Chave determinística do interesse de uma pessoa numa peça. */
+export function reservationId(setId: string, slot: SlotKey, uid: string): string {
+  return `${setId}__${slot}__${uid}`
+}
+
+/** Identifica a fila de uma peça, sem a pessoa. */
+export function queueKey(setId: string, slot: SlotKey): string {
   return `${setId}__${slot}`
 }

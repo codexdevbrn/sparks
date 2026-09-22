@@ -1,6 +1,6 @@
 # Sparks — painel de guild (MU Online)
 
-Site interno da guild: reserva exclusiva de peças de set, anúncios da liderança,
+Site interno da guild: filas de interesse nas peças de set, anúncios da liderança,
 agenda de eventos com confirmação de presença e gestão de membros.
 
 Stack: React 19 + TypeScript + Vite + Tailwind 4, Firebase (Auth Google + **Realtime
@@ -14,21 +14,29 @@ Database** + Hosting).
 além da tela de espera. Um admin aprova em **Membros**. As regras do banco impedem que
 alguém altere o próprio cargo.
 
-**Reserva de sets.** Cada peça (elmo, armadura, calça, luvas, botas, arma, escudo) tem no
-máximo um dono. A exclusividade não depende do frontend: a reserva é gravada no nó de
-chave fixa `reservations/{setId}__{slot}`, e a regra de escrita exige `!data.exists()`.
-Se duas pessoas clicarem ao mesmo tempo, o servidor recusa a segunda — sem transação e
-sem reserva duplicada.
+**Filas por peça.** Várias pessoas podem querer a mesma peça (elmo, armadura, calça,
+luvas, botas, arma, escudo): elas formam uma fila. A ordem não é automática — **a
+liderança decide**, com setas de subir/descer na página Sets, segundo o critério da guild
+(quem joga mais).
+
+O que o servidor garante é que a mesma pessoa não entre duas vezes na mesma fila: o
+registro vive em `reservations/{setId}__{slot}__{uid}` e a regra de criação exige
+`!data.exists()`. A chave também amarra o registro a uma peça e a uma pessoa, então não
+dá para gravar em caminho arbitrário e furar a identidade.
+
+**Quem mexe na ordem.** Só admin. A regra permite escrita em nó já existente apenas para
+admin — se o membro pudesse, ele se colocaria em primeiro. Membro só cria a própria
+entrada e sai da fila; admin também tira qualquer um.
 
 **Cadastro.** Tudo acontece na página **Sets**: o admin cadastra e todo mundo reserva, no
 mesmo lugar. Os botões de cadastrar, editar e excluir só aparecem para admin. Não há
 lista fixa no código, porque servidores privados customizam sets — existe um seed com os
 sets clássicos mais comuns como ponto de partida, que deve ser revisado antes de usar.
 
-**Visão do admin.** A página **Escolhas** (só admin) lista cada player e o que ele
-reservou, agrupado por set, e separa em destaque quem ainda não escolheu nada — que é a
-informação acionável para cobrar o pessoal. O admin pode liberar a reserva de qualquer um
-por ali.
+**Visão do admin.** A página **Escolhas** (só admin) lista cada player e o que ele pediu,
+agrupado por set e com a posição dele em cada fila, e separa em destaque quem ainda não
+escolheu nada — que é a informação acionável para cobrar o pessoal. Reordenar filas é na
+página Sets, onde a fila inteira está visível.
 
 **Dois formatos de cadastro.** Um registro pode ser:
 
@@ -117,7 +125,9 @@ de outra coisa.
 members/{uid}                     perfil + role: pending | member | admin
 sets/{setId}                      nome, classe, tier, slots: { helm: true, ... }
                                   slots: { item: true } => item unico
-reservations/{setId}__{slot}      dono da peça
+reservations/{setId}__{slot}__{uid}
+                                  interesse de uma pessoa numa peca,
+                                  com `order` definindo a posicao na fila
 announcements/{id}                título, texto, pinned
 events/{id}                       título, tipo, startsAt (ms)
 rsvps/{eventId}/{uid}             going | maybe | out
@@ -127,7 +137,7 @@ rsvps/{eventId}/{uid}             going | maybe | out
 | --- | --- |
 | `members/{uid}` | o próprio (só o perfil, nunca o cargo) e admin |
 | `sets` | admin |
-| `reservations` | membro (criar), dono ou admin (apagar). Nunca update. |
+| `reservations` | membro entra na própria fila e sai dela; só admin muda `order` ou tira outra pessoa |
 | `announcements` | admin |
 | `events` | admin |
 | `rsvps/{eventId}/{uid}` | o próprio membro |
@@ -135,10 +145,13 @@ rsvps/{eventId}/{uid}             going | maybe | out
 As presenças ficam em `rsvps/`, e não dentro de `events/`, justamente para que carregar
 a agenda não baixe a confirmação de todo mundo.
 
-Excluir um set apaga as reservas dele, e remover um membro libera as reservas dele —
+Excluir um set apaga as filas dele, e remover um membro tira a pessoa de todas as filas —
 ambos via escrita multi-path, que é atômica. Remover apenas uma peça da composição de um
-set não apaga a reserva correspondente: ela fica invisível e volta a aparecer se a peça
-for reativada.
+set não apaga a fila dela: ela fica invisível e volta a aparecer se a peça for reativada.
+
+Reordenar uma fila **troca o `order` entre dois vizinhos**, não renumera a fila inteira.
+Duas reordenações simultâneas em pontos diferentes da mesma fila não se atropelam, e o
+`order` nasce como `Date.now()` — o que já dá a ordem de chegada como proposta inicial.
 
 ---
 
@@ -164,7 +177,8 @@ for reativada.
   `orderByChild` + `limitToLast`, ou voltar para o Firestore.
 - **As regras repetem a checagem de cargo** em cada nó, porque a linguagem de regras do
   RTDB não tem funções. Mexer em uma exige mexer em todas.
-- **Sem histórico de reservas.** Liberar uma peça apaga o registro. Se a guild precisar
+- **Sem histórico.** Sair de uma fila apaga o registro, e nada registra quem levou o
+  drop de fato — a fila diz quem tem prioridade, não quem recebeu. Se a guild precisar
   auditar quem ficou com o quê, o modelo precisa de um nó de log.
 - **Fuso horário dos eventos** é o do navegador de quem cadastra e de quem lê. Para uma
   guild toda no mesmo fuso não é problema; para guild internacional, precisa guardar o

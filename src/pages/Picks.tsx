@@ -3,7 +3,7 @@ import { onValue, ref, remove } from 'firebase/database'
 import { db } from '../lib/firebase'
 import { errorMessage } from '../lib/format'
 import { listFrom } from '../lib/rtdb'
-import { groupBySet } from '../lib/reservations'
+import { buildQueues, groupBySet, positionIn } from '../lib/reservations'
 import {
   Badge,
   Card,
@@ -15,7 +15,7 @@ import {
   Spinner,
   cx,
 } from '../components/ui'
-import { SLOT_LABELS } from '../types'
+import { SLOT_LABELS, queueKey } from '../types'
 import type { Member, Reservation } from '../types'
 
 type PlayerPicks = {
@@ -55,6 +55,8 @@ export function Picks() {
     }
   }, [])
 
+  const queues = useMemo(() => buildQueues(reservations ?? []), [reservations])
+
   const { withPicks, withoutPicks, total } = useMemo(() => {
     const byUid = new Map<string, Reservation[]>()
     for (const res of reservations ?? []) {
@@ -73,7 +75,7 @@ export function Picks() {
       (a.member.nick || a.member.email || '').localeCompare(b.member.nick || b.member.email || '')
 
     return {
-      // Mais reservas primeiro: quem está montando mais coisa aparece no topo.
+      // Mais pedidos primeiro: quem está querendo mais coisa aparece no topo.
       withPicks: players
         .filter((p) => p.reservations.length > 0)
         .sort((a, b) => b.reservations.length - a.reservations.length || byName(a, b)),
@@ -82,9 +84,9 @@ export function Picks() {
     }
   }, [members, reservations, search])
 
-  /** As regras permitem que o admin apague reserva de qualquer um. */
+  /** As regras permitem que o admin tire qualquer um de qualquer fila. */
   async function release(res: Reservation) {
-    if (!confirm(`Liberar ${res.setName} · ${SLOT_LABELS[res.slot]} de ${res.nick}?`)) return
+    if (!confirm(`Tirar ${res.nick} da fila de ${res.setName} · ${SLOT_LABELS[res.slot]}?`)) return
     setBusy(res.id)
     setError(null)
     try {
@@ -104,7 +106,7 @@ export function Picks() {
     <>
       <PageHeader
         title="Escolhas da guild"
-        description={`${players} player(es) · ${total} reserva(s) no total.`}
+        description={`${players} player(es) · ${total} pedido(s) no total. A ordem de cada fila se ajusta em Sets.`}
       />
 
       <ErrorNote message={error} />
@@ -126,6 +128,7 @@ export function Picks() {
             <PlayerCard
               key={player.member.uid}
               player={player}
+              queues={queues}
               busy={busy}
               onRelease={(res) => void release(res)}
             />
@@ -166,10 +169,12 @@ export function Picks() {
 
 function PlayerCard({
   player,
+  queues,
   busy,
   onRelease,
 }: {
   player: PlayerPicks
+  queues: Map<string, Reservation[]>
   busy: string | null
   onRelease: (res: Reservation) => void
 }) {
@@ -187,7 +192,7 @@ function PlayerCard({
           <p className="truncate text-xs text-zinc-500">{member.charClass || 'classe não definida'}</p>
         </div>
         {member.role === 'admin' && <Badge tone="amber">Admin</Badge>}
-        <Badge tone="blue">{reservations.length} reserva(s)</Badge>
+        <Badge tone="blue">{reservations.length} pedido(s)</Badge>
       </div>
 
       <div className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
@@ -198,24 +203,38 @@ function PlayerCard({
               {group.single && <span className="ml-1 text-zinc-500">· item único</span>}
             </p>
             <ul className="mt-1 space-y-0.5">
-              {group.items.map((res) => (
-                <li key={res.id} className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-zinc-400">
-                    {res.slot === 'item' ? 'Reservado' : SLOT_LABELS[res.slot]}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy === res.id}
-                    onClick={() => onRelease(res)}
-                    className={cx(
-                      'text-xs text-zinc-600 transition-colors hover:text-red-400',
-                      'disabled:opacity-50',
-                    )}
-                  >
-                    {busy === res.id ? '…' : 'liberar'}
-                  </button>
-                </li>
-              ))}
+              {group.items.map((res) => {
+                const queue = queues.get(queueKey(res.setId, res.slot))
+                const position = positionIn(queue, res.uid)
+                const total = queue?.length ?? 1
+
+                return (
+                  <li key={res.id} className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-zinc-400">
+                      {res.slot === 'item' ? 'Fila' : SLOT_LABELS[res.slot]}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {/* Ser o primeiro da fila é o que interessa de relance. */}
+                      <span
+                        className={cx(
+                          'text-xs',
+                          position === 1 ? 'font-medium text-emerald-400' : 'text-zinc-500',
+                        )}
+                      >
+                        {position}º/{total}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={busy === res.id}
+                        onClick={() => onRelease(res)}
+                        className="text-xs text-zinc-600 transition-colors hover:text-red-400 disabled:opacity-50"
+                      >
+                        {busy === res.id ? '…' : 'tirar'}
+                      </button>
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ))}

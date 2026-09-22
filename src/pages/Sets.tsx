@@ -4,7 +4,8 @@ import { onValue, push, ref, remove, serverTimestamp, set as writeValue, update 
 import { useAuth } from '../lib/auth'
 import { db } from '../lib/firebase'
 import { errorMessage, isPermissionDenied } from '../lib/format'
-import { listFrom, mapFrom } from '../lib/rtdb'
+import { listFrom } from '../lib/rtdb'
+import { buildQueues, positionIn } from '../lib/reservations'
 import { SetForm } from '../components/SetForm'
 import {
   Badge,
@@ -19,14 +20,14 @@ import {
   Spinner,
   cx,
 } from '../components/ui'
-import { CHAR_CLASSES, SLOT_LABELS, isSingleItem, reservationId, slotList } from '../types'
+import { CHAR_CLASSES, SLOT_LABELS, isSingleItem, queueKey, reservationId, slotList } from '../types'
 import type { GuildSet, Reservation, SlotKey } from '../types'
 import { SEED_SETS } from '../data/seedSets'
 
 export function Sets() {
   const { member, isAdmin } = useAuth()
   const [sets, setSets] = useState<GuildSet[] | null>(null)
-  const [reservations, setReservations] = useState<Map<string, Reservation> | null>(null)
+  const [all, setAll] = useState<Reservation[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busySlot, setBusySlot] = useState<string | null>(null)
   const [busySet, setBusySet] = useState<string | null>(null)
@@ -50,7 +51,7 @@ export function Sets() {
 
     const unsubRes = onValue(
       ref(db, 'reservations'),
-      (snap) => setReservations(mapFrom<Reservation>(snap.val())),
+      (snap) => setAll(listFrom<Reservation>(snap.val())),
       (err) => setError(errorMessage(err)),
     )
 
@@ -60,12 +61,12 @@ export function Sets() {
     }
   }, [])
 
-  const myReservations = useMemo(() => {
-    if (!reservations || !member) return []
-    return [...reservations.values()]
-      .filter((r) => r.uid === member.uid)
-      .sort((a, b) => a.setName.localeCompare(b.setName))
-  }, [reservations, member])
+  const queues = useMemo(() => buildQueues(all ?? []), [all])
+
+  const myCount = useMemo(
+    () => (member ? (all ?? []).filter((r) => r.uid === member.uid).length : 0),
+    [all, member],
+  )
 
   const visibleSets = useMemo(() => {
     if (!sets) return []
@@ -73,44 +74,45 @@ export function Sets() {
     return sets.filter((set) => {
       if (filterClass && set.charClass !== filterClass) return false
       if (term && !set.name.toLowerCase().includes(term)) return false
-      if (onlyMine && member && reservations) {
-        const mine = slotList(set.slots).some(
-          (slot) => reservations.get(reservationId(set.id, slot))?.uid === member.uid,
+      if (onlyMine && member) {
+        const mine = slotList(set.slots).some((slot) =>
+          queues.get(queueKey(set.id, slot))?.some((r) => r.uid === member.uid),
         )
         if (!mine) return false
       }
       return true
     })
-  }, [sets, filterClass, search, onlyMine, member, reservations])
+  }, [sets, filterClass, search, onlyMine, member, queues])
 
-  /* ---------------- reservas (todo membro, admin incluído) ---------------- */
+  /* ---------------- filas (todo membro, admin incluído) ---------------- */
 
-  /** Escreve a reserva e propaga o erro — quem chama decide como reportar. */
-  async function createReservation(set: GuildSet, slot: SlotKey) {
+  /** Entra na fila da peça e propaga o erro — quem chama decide como reportar. */
+  async function joinQueue(set: GuildSet, slot: SlotKey) {
     if (!member) throw new Error('Sessão inválida.')
-    await writeValue(ref(db, `reservations/${reservationId(set.id, slot)}`), {
+    await writeValue(ref(db, `reservations/${reservationId(set.id, slot, member.uid)}`), {
       setId: set.id,
       setName: set.name,
       charClass: set.charClass,
       slot,
       uid: member.uid,
       nick: member.nick,
+      // Nasce no fim da fila; o admin reordena depois.
+      order: Date.now(),
       createdAt: serverTimestamp(),
     })
   }
 
-  async function reserve(set: GuildSet, slot: SlotKey) {
-    const id = reservationId(set.id, slot)
+  async function join(set: GuildSet, slot: SlotKey) {
+    if (!member) return
+    const id = reservationId(set.id, slot, member.uid)
     setBusySlot(id)
     setError(null)
     try {
-      await createReservation(set, slot)
+      await joinQueue(set, slot)
     } catch (err) {
-      // A regra só aceita escrita em nó inexistente; recusa aqui significa,
-      // na prática, que alguém reservou a peça primeiro.
       setError(
         isPermissionDenied(err)
-          ? `${set.name} · ${SLOT_LABELS[slot]} acabou de ser reservada por outra pessoa.`
+          ? 'Não foi possível entrar na fila. Recarregue a página e tente de novo.'
           : errorMessage(err),
       )
     } finally {
@@ -118,12 +120,11 @@ export function Sets() {
     }
   }
 
-  async function release(set: GuildSet, slot: SlotKey) {
-    const id = reservationId(set.id, slot)
-    setBusySlot(id)
+  async function leave(res: Reservation) {
+    setBusySlot(res.id)
     setError(null)
     try {
-      await remove(ref(db, `reservations/${id}`))
+      await remove(ref(db, `reservations/${res.id}`))
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -131,32 +132,54 @@ export function Sets() {
     }
   }
 
-  async function reserveWholeSet(set: GuildSet) {
-    const free = slotList(set.slots).filter((slot) => !reservations?.has(reservationId(set.id, slot)))
-    if (free.length === 0) return
+  /** Entra em todas as filas do set em que a pessoa ainda não está. */
+  async function joinWholeSet(set: GuildSet) {
+    if (!member) return
+    const missing = slotList(set.slots).filter(
+      (slot) => !queues.get(queueKey(set.id, slot))?.some((r) => r.uid === member.uid),
+    )
+    if (missing.length === 0) return
     setBusySet(set.id)
     setError(null)
     try {
-      const results = await Promise.allSettled(free.map((slot) => createReservation(set, slot)))
+      const results = await Promise.allSettled(missing.map((slot) => joinQueue(set, slot)))
       const failed = results.filter((r) => r.status === 'rejected').length
-      if (failed > 0) {
-        setError(`${failed} de ${free.length} peça(s) já haviam sido reservadas por outra pessoa.`)
-      }
+      if (failed > 0) setError(`${failed} de ${missing.length} fila(s) não aceitaram a entrada.`)
     } finally {
       setBusySet(null)
     }
   }
 
+  /**
+   * Reordena trocando o `order` entre dois vizinhos, numa escrita multi-path.
+   * Não renumera a fila, então duas reordenações simultâneas em pontos
+   * diferentes da mesma fila não se atropelam.
+   */
+  async function swapOrder(a: Reservation, b: Reservation) {
+    setBusySlot(a.id)
+    setError(null)
+    try {
+      await update(ref(db), {
+        [`reservations/${a.id}/order`]: b.order,
+        [`reservations/${b.id}/order`]: a.order,
+      })
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusySlot(null)
+    }
+  }
+
   /* ---------------- catálogo (só admin) ---------------- */
 
-  /** Excluir o cadastro remove as reservas dele. Escrita multi-path: tudo ou nada. */
+  /** Excluir o cadastro remove as filas dele. Escrita multi-path: tudo ou nada. */
   async function handleDelete(set: GuildSet) {
-    if (!confirm(`Excluir "${set.name}" e todas as reservas dele?`)) return
+    if (!confirm(`Excluir "${set.name}" e todas as filas dele?`)) return
     setBusyAdmin(true)
     setError(null)
     try {
       const updates: Record<string, null> = { [`sets/${set.id}`]: null }
-      for (const res of reservations?.values() ?? []) {
+      for (const res of all ?? []) {
         if (res.setId === set.id) updates[`reservations/${res.id}`] = null
       }
       await update(ref(db), updates)
@@ -178,7 +201,6 @@ export function Sets() {
         setError('Todos os sets do seed já estão no catálogo.')
         return
       }
-      // Uma escrita multi-path: o catálogo aparece inteiro de uma vez.
       const updates: Record<string, object> = {}
       for (const seed of novos) {
         const key = push(ref(db, 'sets')).key
@@ -192,13 +214,13 @@ export function Sets() {
     }
   }
 
-  if (sets === null || reservations === null) return <Spinner />
+  if (sets === null || all === null) return <Spinner />
 
   return (
     <>
       <PageHeader
         title="Sets e itens"
-        description="Reserve o que você quer dropar. Uma peça reservada fica exclusiva sua."
+        description="Entre na fila do que você quer dropar. A ordem de cada fila é definida pela liderança."
         action={
           isAdmin && (
             <div className="flex gap-2">
@@ -215,25 +237,13 @@ export function Sets() {
 
       <ErrorNote message={error} />
 
-      {myReservations.length > 0 && (
-        <Card className="mb-6 p-4">
-          <p className="mb-2 text-xs font-medium tracking-wide text-zinc-400 uppercase">
-            Minhas reservas ({myReservations.length})
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {myReservations.map((r) => (
-              <Badge key={r.id} tone="amber">
-                {r.setName}
-                {r.slot !== 'item' && ` · ${SLOT_LABELS[r.slot]}`}
-              </Badge>
-            ))}
-          </div>
-        </Card>
-      )}
-
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <Field label="Buscar">
-          <Input placeholder="Nome do set ou item…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input
+            placeholder="Nome do set ou item…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </Field>
         <Field label="Classe">
           <Select value={filterClass} onChange={(e) => setFilterClass(e.target.value)}>
@@ -253,7 +263,7 @@ export function Sets() {
               onChange={(e) => setOnlyMine(e.target.checked)}
               className="size-4 accent-amber-500"
             />
-            Só onde tenho reserva
+            Só onde estou na fila {myCount > 0 && `(${myCount})`}
           </label>
         </div>
       </div>
@@ -287,15 +297,16 @@ export function Sets() {
             <SetCard
               key={set.id}
               set={set}
-              reservations={reservations}
+              queues={queues}
               myUid={member?.uid}
               isAdmin={isAdmin}
               busySlot={busySlot}
               busySet={busySet}
               busyAdmin={busyAdmin}
-              onReserve={reserve}
-              onRelease={release}
-              onReserveAll={reserveWholeSet}
+              onJoin={join}
+              onLeave={leave}
+              onJoinAll={joinWholeSet}
+              onSwap={swapOrder}
               onEdit={() => setEditing(set)}
               onDelete={() => void handleDelete(set)}
             />
@@ -318,37 +329,45 @@ export function Sets() {
 
 type SetCardProps = {
   set: GuildSet
-  reservations: Map<string, Reservation>
+  queues: Map<string, Reservation[]>
   myUid: string | undefined
   isAdmin: boolean
   busySlot: string | null
   busySet: string | null
   busyAdmin: boolean
-  onReserve: (set: GuildSet, slot: SlotKey) => void
-  onRelease: (set: GuildSet, slot: SlotKey) => void
-  onReserveAll: (set: GuildSet) => void
+  onJoin: (set: GuildSet, slot: SlotKey) => void
+  onLeave: (res: Reservation) => void
+  onJoinAll: (set: GuildSet) => void
+  onSwap: (a: Reservation, b: Reservation) => void
   onEdit: () => void
   onDelete: () => void
 }
 
 function SetCard({
   set,
-  reservations,
+  queues,
   myUid,
   isAdmin,
   busySlot,
   busySet,
   busyAdmin,
-  onReserve,
-  onRelease,
-  onReserveAll,
+  onJoin,
+  onLeave,
+  onJoinAll,
+  onSwap,
   onEdit,
   onDelete,
 }: SetCardProps) {
   const slots = slotList(set.slots)
   const single = isSingleItem(set.slots)
-  const taken = slots.filter((slot) => reservations.has(reservationId(set.id, slot))).length
-  const allTaken = slots.length > 0 && taken === slots.length
+
+  const interested = slots.reduce(
+    (sum, slot) => sum + (queues.get(queueKey(set.id, slot))?.length ?? 0),
+    0,
+  )
+  const missing = myUid
+    ? slots.filter((slot) => !queues.get(queueKey(set.id, slot))?.some((r) => r.uid === myUid)).length
+    : 0
 
   return (
     <Card className="flex flex-col p-5">
@@ -362,11 +381,7 @@ function SetCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {!single && (
-            <Badge tone={allTaken ? 'red' : taken > 0 ? 'amber' : 'green'}>
-              {taken}/{slots.length}
-            </Badge>
-          )}
+          {interested > 0 && <Badge tone="blue">{interested} na fila</Badge>}
           {isAdmin && (
             <>
               <Button variant="ghost" size="sm" onClick={onEdit}>
@@ -383,67 +398,162 @@ function SetCard({
       {set.notes && <p className="mt-2 text-xs text-zinc-400">{set.notes}</p>}
 
       <ul className="mt-4 divide-y divide-zinc-800 border-t border-zinc-800">
-        {slots.map((slot) => {
-          const id = reservationId(set.id, slot)
-          const res = reservations.get(id)
-          const isMineSlot = res?.uid === myUid
-          const busy = busySlot === id
-
-          return (
-            <li key={slot} className="flex items-center justify-between gap-3 py-2">
-              {/* Num item único não existe "peça" a nomear. */}
-              <span className="text-sm text-zinc-300">{single ? 'Reserva' : SLOT_LABELS[slot]}</span>
-
-              <div className="flex items-center gap-2">
-                {res ? (
-                  <span
-                    className={cx('text-xs font-medium', isMineSlot ? 'text-amber-400' : 'text-zinc-500')}
-                  >
-                    {isMineSlot ? 'Você' : res.nick}
-                  </span>
-                ) : (
-                  <span className="text-xs text-zinc-600">livre</span>
-                )}
-
-                {res ? (
-                  (isMineSlot || isAdmin) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => onRelease(set, slot)}
-                    >
-                      Liberar
-                    </Button>
-                  )
-                ) : (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => onReserve(set, slot)}
-                  >
-                    Reservar
-                  </Button>
-                )}
-              </div>
-            </li>
-          )
-        })}
+        {slots.map((slot) => (
+          <SlotRow
+            key={slot}
+            set={set}
+            slot={slot}
+            single={single}
+            queue={queues.get(queueKey(set.id, slot)) ?? []}
+            myUid={myUid}
+            isAdmin={isAdmin}
+            busySlot={busySlot}
+            onJoin={onJoin}
+            onLeave={onLeave}
+            onSwap={onSwap}
+          />
+        ))}
       </ul>
 
-      {/* Atalho só faz sentido com mais de uma peça livre. */}
-      {!single && !allTaken && slots.length > 1 && (
+      {!single && missing > 0 && slots.length > 1 && (
         <Button
           variant="primary"
           size="sm"
           className="mt-4 w-full"
           disabled={busySet === set.id}
-          onClick={() => onReserveAll(set)}
+          onClick={() => onJoinAll(set)}
         >
-          {busySet === set.id ? 'Reservando…' : 'Reservar peças livres'}
+          {busySet === set.id ? 'Entrando…' : `Entrar nas ${missing} fila(s) que faltam`}
         </Button>
       )}
     </Card>
+  )
+}
+
+/* ---------------- linha de uma peça ---------------- */
+
+function SlotRow({
+  set,
+  slot,
+  single,
+  queue,
+  myUid,
+  isAdmin,
+  busySlot,
+  onJoin,
+  onLeave,
+  onSwap,
+}: {
+  set: GuildSet
+  slot: SlotKey
+  single: boolean
+  queue: Reservation[]
+  myUid: string | undefined
+  isAdmin: boolean
+  busySlot: string | null
+  onJoin: (set: GuildSet, slot: SlotKey) => void
+  onLeave: (res: Reservation) => void
+  onSwap: (a: Reservation, b: Reservation) => void
+}) {
+  const myPosition = myUid ? positionIn(queue, myUid) : 0
+  const mine = myPosition > 0 ? queue[myPosition - 1] : undefined
+  const busy = mine ? busySlot === mine.id : busySlot === `${set.id}__${slot}__${myUid}`
+
+  return (
+    <li className="py-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-zinc-300">{single ? 'Fila' : SLOT_LABELS[slot]}</span>
+
+        <div className="flex items-center gap-2">
+          {queue.length === 0 ? (
+            <span className="text-xs text-zinc-600">ninguém ainda</span>
+          ) : (
+            <span className="text-xs text-zinc-500">
+              {queue.length} na fila
+              {myPosition > 0 && <span className="text-amber-400"> · você é {myPosition}º</span>}
+            </span>
+          )}
+
+          {mine ? (
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => onLeave(mine)}>
+              Sair
+            </Button>
+          ) : (
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => onJoin(set, slot)}>
+              Entrar
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {queue.length > 0 && (
+        <ol className="mt-1.5 space-y-0.5">
+          {queue.map((res, index) => (
+            <li key={res.id} className="flex items-center gap-2 text-xs">
+              <span className="w-4 shrink-0 text-right text-zinc-600">{index + 1}º</span>
+              <span className={cx('truncate', res.uid === myUid ? 'text-amber-400' : 'text-zinc-400')}>
+                {res.uid === myUid ? 'Você' : res.nick}
+              </span>
+
+              {isAdmin && queue.length > 1 && (
+                <span className="ml-auto flex shrink-0 gap-1">
+                  <QueueArrow
+                    label="Subir"
+                    symbol="↑"
+                    disabled={index === 0 || busySlot !== null}
+                    onClick={() => onSwap(res, queue[index - 1])}
+                  />
+                  <QueueArrow
+                    label="Descer"
+                    symbol="↓"
+                    disabled={index === queue.length - 1 || busySlot !== null}
+                    onClick={() => onSwap(res, queue[index + 1])}
+                  />
+                </span>
+              )}
+
+              {isAdmin && res.uid !== myUid && (
+                <button
+                  type="button"
+                  disabled={busySlot !== null}
+                  onClick={() => onLeave(res)}
+                  className={cx(
+                    'shrink-0 text-zinc-600 transition-colors hover:text-red-400 disabled:opacity-50',
+                    queue.length > 1 ? '' : 'ml-auto',
+                  )}
+                >
+                  remover
+                </button>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </li>
+  )
+}
+
+function QueueArrow({
+  label,
+  symbol,
+  disabled,
+  onClick,
+}: {
+  label: string
+  symbol: string
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded px-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-30 disabled:hover:bg-transparent"
+    >
+      {symbol}
+    </button>
   )
 }

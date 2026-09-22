@@ -57,26 +57,32 @@
       }
     },
 
-    // ---------------- reservas de pecas ----------------
-    // Exclusividade: a criacao so passa em no INEXISTENTE. Duas pessoas
-    // clicando na mesma peca -> a segunda e recusada pelo servidor.
-    // Nao existe update: so criar e apagar.
+    // ---------------- filas de interesse nas pecas ----------------
+    // Varias pessoas podem querer a mesma peca: elas formam uma fila. O que a
+    // chave deterministica '<setId>__<slot>__<uid>' garante e que a MESMA
+    // pessoa nao entra duas vezes na mesma fila, porque criar so passa em no
+    // inexistente.
+    //
+    // A ordem da fila vive no campo 'order' e so o admin pode alterar: se o
+    // membro pudesse escrever em no existente, ele se colocaria em primeiro.
     "reservations": {
       ".read": "auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin')",
 
       "$resId": {
-        ".write": "(auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin') && !data.exists() && newData.exists() && newData.child('uid').val() === auth.uid) || (auth != null && data.exists() && !newData.exists() && (root.child('members/' + auth.uid + '/role').val() === 'admin' || data.child('uid').val() === auth.uid))",
+        ".write": "(auth != null && (root.child('members/' + auth.uid + '/role').val() === 'member' || root.child('members/' + auth.uid + '/role').val() === 'admin') && !data.exists() && newData.exists() && newData.child('uid').val() === auth.uid) || (auth != null && data.exists() && !newData.exists() && (root.child('members/' + auth.uid + '/role').val() === 'admin' || data.child('uid').val() === auth.uid)) || (auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin' && data.exists() && newData.exists())",
 
-        // A chave tem de ser '<setId>__<slot>' e a peca tem de existir no set,
-        // senao daria para burlar a exclusividade gravando em outro caminho.
-        ".validate": "newData.hasChildren(['setId', 'slot', 'uid', 'nick']) && $resId === newData.child('setId').val() + '__' + newData.child('slot').val() && root.child('sets/' + newData.child('setId').val() + '/slots/' + newData.child('slot').val()).val() === true",
+        // A chave amarra o registro a uma peca e a uma pessoa, e a peca tem de
+        // existir no set. Sem isso daria para gravar em caminho arbitrario e
+        // furar tanto a identidade quanto a fila.
+        ".validate": "newData.hasChildren(['setId', 'slot', 'uid', 'nick', 'order']) && $resId === newData.child('setId').val() + '__' + newData.child('slot').val() + '__' + newData.child('uid').val() && root.child('sets/' + newData.child('setId').val() + '/slots/' + newData.child('slot').val()).val() === true",
 
         "setId": { ".validate": "newData.isString()" },
         "setName": { ".validate": "newData.isString() && newData.val().length <= 60" },
         "charClass": { ".validate": "newData.isString() && newData.val().length <= 30" },
         "slot": { ".validate": "newData.isString() && newData.val().length <= 20" },
-        "uid": { ".validate": "newData.val() === auth.uid" },
+        "uid": { ".validate": "newData.isString()" },
         "nick": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "order": { ".validate": "newData.isNumber()" },
         "createdAt": { ".validate": "newData.isNumber()" },
         "$other": { ".validate": false }
       }

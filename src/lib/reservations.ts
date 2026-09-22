@@ -1,4 +1,4 @@
-import { SLOTS } from '../types'
+import { SLOTS, queueKey } from '../types'
 import type { Reservation } from '../types'
 
 export type SetGroup = {
@@ -11,10 +11,45 @@ export type SetGroup = {
 }
 
 /**
- * Agrupa reservas por set, com as peças em ordem canônica.
+ * Ordem da fila: `order` manda, e os desempates existem só para a lista nunca
+ * embaralhar entre renderizações — dois interessados podem nascer com o mesmo
+ * `Date.now()` se clicarem no mesmo milissegundo.
+ */
+export function byQueueOrder(a: Reservation, b: Reservation): number {
+  return (
+    a.order - b.order ||
+    (a.createdAt ?? 0) - (b.createdAt ?? 0) ||
+    a.nick.localeCompare(b.nick) ||
+    a.uid.localeCompare(b.uid)
+  )
+}
+
+/** Indexa as filas por peça, cada uma já ordenada. */
+export function buildQueues(list: Reservation[]): Map<string, Reservation[]> {
+  const queues = new Map<string, Reservation[]>()
+
+  for (const res of list) {
+    const key = queueKey(res.setId, res.slot)
+    const queue = queues.get(key) ?? []
+    queue.push(res)
+    queues.set(key, queue)
+  }
+
+  for (const queue of queues.values()) queue.sort(byQueueOrder)
+  return queues
+}
+
+/** Posição de alguém na fila da própria peça, começando em 1. `0` se não está. */
+export function positionIn(queue: Reservation[] | undefined, uid: string): number {
+  if (!queue) return 0
+  return queue.findIndex((r) => r.uid === uid) + 1
+}
+
+/**
+ * Agrupa interesses por set, com as peças em ordem canônica.
  *
- * Sem isso, sete reservas do mesmo set viram sete linhas repetindo o nome; e a
- * ordem de chegada das reservas não significa nada para quem lê.
+ * Sem isso, sete linhas do mesmo set repetem o nome; e a ordem de chegada dos
+ * interesses não significa nada para quem lê.
  */
 export function groupBySet(list: Reservation[]): SetGroup[] {
   const bySet = new Map<string, SetGroup>()
