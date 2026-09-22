@@ -142,14 +142,22 @@
       ".write": "auth != null && root.child('members/' + auth.uid + '/role').val() === 'admin'",
 
       "$id": {
-        // Ou tem data fixa, ou e recorrente (semana + hora) -- nunca precisa
-        // dos dois nem fica sem nenhum.
-        ".validate": "newData.hasChild('title') && (newData.hasChild('startsAt') || newData.hasChild('recurrence'))",
+        // Tres formas de dizer quando: uma data (`startsAt`), varias (`dates`)
+        // ou recorrencia semanal. Precisa de exatamente uma delas -- sem
+        // nenhuma, o evento nao teria quando acontecer.
+        ".validate": "newData.hasChild('title') && (newData.hasChild('startsAt') || newData.hasChild('dates') || newData.hasChild('recurrence'))",
 
         "title": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
         "description": { ".validate": "newData.isString() && newData.val().length <= 2000" },
         "type": { ".validate": "newData.isString() && newData.val().length <= 30" },
         "startsAt": { ".validate": "newData.isNumber()" },
+        // Varias datas no mesmo evento. Mapa chave -> ms desde a epoca; a
+        // chave e gerada pelo cliente e so precisa ser estavel, porque e ela
+        // que identifica a lista de presenca daquela data em rsvpCycles.
+        "dates": {
+          ".validate": "newData.hasChildren()",
+          "$dateId": { ".validate": "newData.isNumber() && newData.val() > 0" }
+        },
         "recurrence": {
           ".validate": "newData.hasChildren(['weekday', 'hour', 'minute'])",
           "weekday": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },

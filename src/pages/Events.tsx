@@ -5,6 +5,14 @@ import { useAuth } from '../lib/auth'
 import { db } from '../lib/firebase'
 import { errorMessage, formatDateTime, fromDateTimeLocal, toDateTimeLocal } from '../lib/format'
 import { nextOccurrence, rsvpCycleId, WEEKDAY_LABELS } from '../lib/recurrence'
+import {
+  effectiveStartsAt,
+  eventDates,
+  isEventPast,
+  nextEventDate,
+  upcomingCount,
+} from '../lib/eventDates'
+export { effectiveStartsAt } from '../lib/eventDates'
 import { listFrom } from '../lib/rtdb'
 import { notifyDiscord } from '../lib/discord'
 import {
@@ -25,15 +33,19 @@ import {
 import { EVENT_TYPES, RSVP_LABELS } from '../types'
 import type { EventType, GuildEvent, Recurrence, Rsvp, RsvpStatus, Weekday } from '../types'
 
-/** Data usada para ordenar e para decidir se um evento já passou. */
-export function effectiveStartsAt(event: GuildEvent, now: number): number {
-  if (event.recurrence) return nextOccurrence(event.recurrence, now)
-  return event.startsAt ?? 0
-}
-
-/** Caminho do RTDB onde vivem as presenças desse evento nesse momento. */
+/**
+ * Caminho do RTDB onde vivem as presenças desse evento nesse momento.
+ *
+ * Evento de várias datas reaproveita o mesmo mecanismo do recorrente: cada
+ * data é um ciclo, com sua própria lista. Assim dá para confirmar um dia e
+ * não o outro, e o ranking de presença conta cada data em separado.
+ */
 function rsvpPath(event: GuildEvent, now: number): string {
   if (event.recurrence) return `rsvpCycles/${event.id}/${rsvpCycleId(event.recurrence, now)}`
+  if (event.dates) {
+    const next = nextEventDate(event, now)
+    return `rsvpCycles/${event.id}/${next?.key ?? 'sem-data'}`
+  }
   return `rsvps/${event.id}`
 }
 
@@ -72,20 +84,20 @@ export function Events() {
   const { pinned, upcoming, past } = useMemo(() => {
     const all = events ?? []
     const withDate = all.map((e) => ({ event: e, at: effectiveStartsAt(e, now) }))
-    const isPast = (e: GuildEvent, at: number) => !e.recurrence && at < now
+    const isPast = (e: GuildEvent) => isEventPast(e, now)
 
     const pinned = withDate
-      .filter(({ event, at }) => event.pinned && !isPast(event, at))
+      .filter(({ event }) => event.pinned && !isPast(event))
       .sort((a, b) => a.at - b.at)
       .map((x) => x.event)
 
     const upcoming = withDate
-      .filter(({ event, at }) => !event.pinned && !isPast(event, at))
+      .filter(({ event }) => !event.pinned && !isPast(event))
       .sort((a, b) => a.at - b.at)
       .map((x) => x.event)
 
     const past = withDate
-      .filter(({ event, at }) => isPast(event, at))
+      .filter(({ event }) => isPast(event))
       .sort((a, b) => b.at - a.at)
       .slice(0, 10)
       .map((x) => x.event)
@@ -238,13 +250,7 @@ export function EventCard({
             <Badge tone="blue">{event.type}</Badge>
             <h2 className="text-base font-semibold text-zinc-50">{event.title}</h2>
           </div>
-          <p className="mt-1 text-sm text-amber-400">
-            {event.recurrence
-              ? `Toda ${WEEKDAY_LABELS[event.recurrence.weekday]} · próxima: ${formatDateTime(
-                  nextOccurrence(event.recurrence, now),
-                )}`
-              : formatDateTime(event.startsAt)}
-          </p>
+          <EventWhen event={event} now={now} />
         </div>
         {isAdmin && (
           <div className="flex gap-1">
@@ -313,13 +319,104 @@ export function EventCard({
 
 const WEEKDAY_OPTIONS: Weekday[] = [0, 1, 2, 3, 4, 5, 6]
 
+/**
+ * Nomes dos bosses cadastrados, para o seletor de tipo.
+ *
+ * Sai do banco e não de uma lista no código: o catálogo já é gerenciado na
+ * página Bosses, e duplicar aqui garantiria divergir. Boss novo aparece
+ * sozinho como tipo de evento.
+ */
+function useBossNames(): string[] {
+  const [names, setNames] = useState<string[]>([])
+
+  useEffect(() => {
+    return onValue(
+      ref(db, 'bosses'),
+      (snap) => {
+        const value = snap.val() as Record<string, { name?: string }> | null
+        setNames(
+          Object.values(value ?? {})
+            .map((b) => b?.name)
+            .filter((n): n is string => typeof n === 'string' && n.length > 0)
+            .sort((a, b) => a.localeCompare(b)),
+        )
+      },
+      () => setNames([]),
+    )
+  }, [])
+
+  return names
+}
+
+/**
+ * Quando o evento acontece.
+ *
+ * Com várias datas, a próxima aparece em destaque e as demais em seguida, com
+ * as que já passaram riscadas — o card precisa dizer o que ainda vem sem
+ * esconder o que passou.
+ */
+function EventWhen({ event, now }: { event: GuildEvent; now: number }) {
+  if (event.recurrence) {
+    return (
+      <p className="mt-1 text-sm text-amber-400">
+        Toda {WEEKDAY_LABELS[event.recurrence.weekday]} · próxima:{' '}
+        {formatDateTime(nextOccurrence(event.recurrence, now))}
+      </p>
+    )
+  }
+
+  const dates = eventDates(event)
+  const next = nextEventDate(event, now)
+  const restantes = upcomingCount(event, now)
+
+  if (dates.length <= 1) {
+    return <p className="mt-1 text-sm text-amber-400">{formatDateTime(next?.at)}</p>
+  }
+
+  return (
+    <div className="mt-1">
+      <p className="text-sm text-amber-400">
+        {formatDateTime(next?.at)}
+        <span className="ml-2 text-xs text-zinc-500">
+          {restantes > 0 ? `${restantes} de ${dates.length} data(s) por vir` : 'todas já passaram'}
+        </span>
+      </p>
+      <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+        {dates.map((d) => {
+          const passou = d.at < now
+          return (
+            <li
+              key={d.key}
+              className={cx(
+                'text-xs',
+                passou
+                  ? 'text-zinc-600 line-through decoration-zinc-700'
+                  : d.key === next?.key
+                    ? 'font-medium text-amber-400'
+                    : 'text-zinc-400',
+              )}
+            >
+              {formatDateTime(d.at)}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 export function EventForm({ item, onClose }: { item: GuildEvent | null; onClose: () => void }) {
   const { member } = useAuth()
   const [title, setTitle] = useState(item?.title ?? '')
   const [description, setDescription] = useState(item?.description ?? '')
   const [type, setType] = useState<EventType>(item?.type ?? 'Castle Siege')
   const [recurring, setRecurring] = useState(Boolean(item?.recurrence))
-  const [startsAt, setStartsAt] = useState(item?.startsAt ? toDateTimeLocal(item.startsAt) : '')
+  // Uma linha por data. Comeca com o que o evento ja tinha, ou uma linha vazia.
+  const [dates, setDates] = useState<string[]>(() => {
+    const existentes = eventDates(item ?? ({} as GuildEvent)).map((d) => toDateTimeLocal(d.at))
+    return existentes.length > 0 ? existentes : ['']
+  })
+  const bossTypes = useBossNames()
   const [weekday, setWeekday] = useState<Weekday>(item?.recurrence?.weekday ?? 0)
   const [time, setTime] = useState(
     item?.recurrence ? `${String(item.recurrence.hour).padStart(2, '0')}:${String(item.recurrence.minute).padStart(2, '0')}` : '17:00',
@@ -335,6 +432,7 @@ export function EventForm({ item, onClose }: { item: GuildEvent | null; onClose:
 
     let recurrence: Recurrence | null = null
     let ms: number | null = null
+    let dateMap: Record<string, number> | null = null
 
     if (recurring) {
       const [hourStr, minuteStr] = time.split(':')
@@ -346,10 +444,24 @@ export function EventForm({ item, onClose }: { item: GuildEvent | null; onClose:
       }
       recurrence = { weekday, hour, minute }
     } else {
-      ms = fromDateTimeLocal(startsAt)
-      if (ms === null) {
-        setError('Informe uma data e hora válidas.')
+      const preenchidas = dates.map((d) => d.trim()).filter(Boolean)
+      if (preenchidas.length === 0) {
+        setError('Informe pelo menos uma data.')
         return
+      }
+      const parsed = preenchidas.map(fromDateTimeLocal)
+      if (parsed.some((v) => v === null)) {
+        setError('Uma das datas está inválida.')
+        return
+      }
+      const unicas = [...new Set(parsed as number[])].sort((a, b) => a - b)
+      if (unicas.length === 1) {
+        // Data unica continua no formato antigo: assim as presencas seguem em
+        // `rsvps/{id}` e nenhuma confirmacao ja dada se perde.
+        ms = unicas[0]
+      } else {
+        dateMap = {}
+        for (const at of unicas) dateMap[`d${at}`] = at
       }
     }
 
@@ -361,6 +473,7 @@ export function EventForm({ item, onClose }: { item: GuildEvent | null; onClose:
         description: description.trim(),
         type,
         startsAt: ms,
+        dates: dateMap,
         recurrence,
         pinned,
         rsvpEnabled,
@@ -376,7 +489,9 @@ export function EventForm({ item, onClose }: { item: GuildEvent | null; onClose:
         })
         const when = recurring
           ? `toda ${WEEKDAY_LABELS[weekday]} às ${time}`
-          : formatDateTime(ms ?? undefined)
+          : dateMap
+            ? `${Object.keys(dateMap).length} datas, a partir de ${formatDateTime(Math.min(...Object.values(dateMap)))}`
+            : formatDateTime(ms ?? undefined)
         void notifyDiscord(`🗓️ **Novo evento: ${title.trim()}** — ${when}`)
       }
       onClose()
@@ -394,12 +509,27 @@ export function EventForm({ item, onClose }: { item: GuildEvent | null; onClose:
         </Field>
 
         <Field label="Tipo">
-          <Select value={type} onChange={(e) => setType(e.target.value as EventType)}>
+          <Select value={type} onChange={(e) => setType(e.target.value)}>
             {EVENT_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
+            {bossTypes.length > 0 && (
+              <optgroup label="Bosses">
+                {bossTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {/* Tipo de um evento antigo pode nao estar em nenhuma das listas
+                (boss renomeado ou excluido); sem isso o Select cairia no
+                primeiro item e trocaria o tipo sem ninguem pedir. */}
+            {type && !EVENT_TYPES.includes(type as (typeof EVENT_TYPES)[number]) && !bossTypes.includes(type) && (
+              <option value={type}>{type}</option>
+            )}
           </Select>
         </Field>
 
@@ -429,13 +559,43 @@ export function EventForm({ item, onClose }: { item: GuildEvent | null; onClose:
             </Field>
           </div>
         ) : (
-          <Field label="Data e hora" hint="No fuso horário do seu computador.">
-            <Input
-              type="datetime-local"
-              value={startsAt}
-              onChange={(e) => setStartsAt(e.target.value)}
-              required
-            />
+          <Field
+            label={dates.length > 1 ? `Datas (${dates.length})` : 'Data e hora'}
+            hint="No fuso horário do seu computador. Cada data tem sua própria lista de presença."
+          >
+            <div className="space-y-2">
+              {dates.map((value, index) => (
+                <div key={index} className="flex gap-2">
+                  <Input
+                    type="datetime-local"
+                    value={value}
+                    onChange={(e) =>
+                      setDates((cur) => cur.map((v, i) => (i === index ? e.target.value : v)))
+                    }
+                    required={index === 0}
+                  />
+                  {dates.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label="Remover data"
+                      onClick={() => setDates((cur) => cur.filter((_, i) => i !== index))}
+                    >
+                      ✕
+                    </Button>
+                  )}
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setDates((cur) => [...cur, ''])}
+              >
+                + Adicionar data
+              </Button>
+            </div>
           </Field>
         )}
 

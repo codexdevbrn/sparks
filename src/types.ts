@@ -210,9 +210,15 @@ export type Announcement = {
   updatedAt?: number
 }
 
+/** Tipos fixos. A lista do formulario junta estes com os bosses cadastrados. */
 export const EVENT_TYPES = ['Castle Siege', 'Blood Castle', 'Chaos Castle', 'Boss', 'Outro'] as const
 
-export type EventType = (typeof EVENT_TYPES)[number]
+/**
+ * Texto livre, e nao uniao fechada: alem dos tipos fixos, o formulario oferece
+ * o nome de cada boss cadastrado em `bosses`, e essa lista muda em tempo de
+ * execucao. Fechar o tipo aqui obrigaria a duplicar o catalogo no codigo.
+ */
+export type EventType = string
 
 /** 0 = domingo ... 6 = sábado, igual a `Date#getDay()`. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
@@ -228,8 +234,21 @@ export type GuildEvent = {
   title: string
   description: string
   type: EventType
-  /** Milissegundos desde a epoch. Ausente quando o evento é recorrente. */
+  /**
+   * Uma data so, em ms desde a epoch. Continua existindo por causa dos eventos
+   * criados antes de `dates`, e porque evento de data unica guarda as presencas
+   * em `rsvps/{id}` -- mexer nisso perderia as confirmacoes ja dadas.
+   */
   startsAt?: number
+  /**
+   * Varias datas no mesmo evento: chave gerada -> ms desde a epoch.
+   *
+   * Mapa, e nao array, porque o RTDB transforma array em objeto de chaves
+   * numericas e abre espaco para buraco e reordenacao silenciosa. Cada data
+   * tem sua propria lista de presenca, em `rsvpCycles/{id}/{chave}`, entao a
+   * pessoa confirma dia a dia.
+   */
+  dates?: Record<string, number>
   /** Presente quando o evento se repete toda semana no mesmo dia e hora. */
   recurrence?: Recurrence
   /** Evento fixado aparece no topo da agenda, antes dos demais. */

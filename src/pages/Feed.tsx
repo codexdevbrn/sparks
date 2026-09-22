@@ -8,7 +8,8 @@ import { listFrom } from '../lib/rtdb'
 import { normalizeImageUrl } from '../lib/imageUrl'
 import { notifyDiscord } from '../lib/discord'
 import { ImageUrlField } from '../components/ImageUrlField'
-import { EventCard, EventForm, deleteEventCascade, effectiveStartsAt } from './Events'
+import { EventCard, EventForm, deleteEventCascade } from './Events'
+import { isEventPast } from '../lib/eventDates'
 import { PollCard, PollForm, deletePollCascade } from './Polls'
 import {
   Badge,
@@ -89,9 +90,9 @@ export function Feed() {
     }
 
     for (const e of events ?? []) {
-      const at = effectiveStartsAt(e, now)
-      const isPast = !e.recurrence && at < now
-      if (isPast) continue
+      // Evento de várias datas só sai do feed quando a última passa; comparar
+      // só a próxima esconderia um evento que ainda tem dias pela frente.
+      if (isEventPast(e, now)) continue
       entries.push({ kind: 'event', sortAt: e.createdAt ?? 0, pinned: Boolean(e.pinned), item: e })
     }
 
